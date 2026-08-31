@@ -27,6 +27,10 @@ import {
   AudioPresets,
   TrackPublishOptions,
 } from "livekit-client";
+import {
+  KrispNoiseFilter,
+  isKrispNoiseFilterSupported,
+} from "@livekit/krisp-noise-filter";
 import { LANG_NAME, MODULE_NAME } from "./utils/constants";
 import LiveKitAVClient from "./LiveKitAVClient";
 import {
@@ -175,6 +179,49 @@ export default class LiveKitClient {
     } else {
       connectButton.classList.toggle("hidden", false);
     }
+  }
+
+  /**
+   * Add a toggle button for the enhanced (Krisp) noise cancellation filter to
+   * the user's camera control bar. The button is only added when the Krisp
+   * filter is supported by the current browser.
+   * @param {HTMLElement} element   The element to insert the button before
+   */
+  addKrispButton(element: HTMLElement): void {
+    // If useExternalAV is enabled, return
+    if (this.useExternalAV) {
+      return;
+    }
+
+    // Don't add the button if the browser doesn't support the Krisp filter
+    if (!isKrispNoiseFilterSupported()) {
+      return;
+    }
+
+    const enabled =
+      game.settings?.get(MODULE_NAME, "enhancedNoiseCancellation") ?? false;
+
+    const krispButton = document.createElement("button");
+    krispButton.type = "button";
+    krispButton.className =
+      "av-control inline-control toggle icon fa-solid fa-fw fa-wand-magic-sparkles livekit-control livekit-krisp-control";
+    krispButton.classList.toggle("active", enabled);
+    krispButton.dataset.tooltip = "";
+    krispButton.ariaLabel =
+      game.i18n?.localize(`${LANG_NAME}.enhancedNoiseCancellation`) ??
+      "Enhanced Noise Cancellation";
+
+    krispButton.addEventListener("click", () => {
+      const current =
+        game.settings?.get(MODULE_NAME, "enhancedNoiseCancellation") ?? false;
+      krispButton.classList.toggle("active", !current);
+      game.settings
+        ?.set(MODULE_NAME, "enhancedNoiseCancellation", !current)
+        .catch((error: unknown) => {
+          log.error("Error toggling enhancedNoiseCancellation:", error);
+        });
+    });
+    element.before(krispButton);
   }
 
   addConnectionQualityIndicator(userId: string): void {
@@ -409,6 +456,10 @@ export default class LiveKitClient {
       audioCaptureOptions.echoCancellation = false;
       audioCaptureOptions.noiseSuppression = false;
       audioCaptureOptions.channelCount = { ideal: 2 };
+    } else if (game.settings?.get(MODULE_NAME, "enhancedNoiseCancellation")) {
+      // When enhanced (Krisp) noise cancellation is enabled, disable the
+      // browser's native noise suppression to avoid double-processing the audio.
+      audioCaptureOptions.noiseSuppression = false;
     }
 
     return audioCaptureOptions;
@@ -565,6 +616,7 @@ export default class LiveKitClient {
     if (audioParams) {
       try {
         this.audioTrack = await createLocalAudioTrack(audioParams);
+        await this.applyKrispNoiseFilter();
       } catch (error: unknown) {
         let message = error;
         if (error instanceof Error) {
@@ -583,6 +635,39 @@ export default class LiveKitClient {
       )
     ) {
       await this.audioTrack.mute();
+    }
+  }
+
+  /**
+   * Attach the Krisp (enhanced) noise cancellation processor to the current
+   * local audio track, when the setting is enabled, the browser supports it,
+   * and Music Mode is not active.
+   */
+  async applyKrispNoiseFilter(): Promise<void> {
+    if (!this.audioTrack) {
+      return;
+    }
+
+    const enabled =
+      (game.settings?.get(MODULE_NAME, "enhancedNoiseCancellation") ?? false) &&
+      !(game.settings?.get(MODULE_NAME, "audioMusicMode") ?? false);
+
+    if (!enabled) {
+      return;
+    }
+
+    if (!isKrispNoiseFilterSupported()) {
+      log.warn("Krisp noise filter is not supported on this browser");
+      return;
+    }
+
+    try {
+      const krispProcessor = KrispNoiseFilter();
+      await this.audioTrack.setProcessor(krispProcessor);
+      await krispProcessor.setEnabled(true);
+      log.info("Krisp noise filter enabled");
+    } catch (error: unknown) {
+      log.error("Error enabling Krisp noise filter:", error);
     }
   }
 
@@ -969,6 +1054,7 @@ export default class LiveKitClient {
       return;
     }
     this.addConnectionButtons(element);
+    this.addKrispButton(element);
   }
 
   onTrackSubscribed(

@@ -10,6 +10,26 @@
   pointer-events: none;
 }
 
+/* Enhanced (Krisp) noise cancellation toggle button */
+.camera-view .av-control.livekit-krisp-control.active {
+  color: #50ffff;
+}
+
+/*
+ * Fix: in popped-out camera views the control buttons could render
+ * semi-transparent and non-interactive. Force them to be fully visible and
+ * clickable when the camera view is popped out of the dock.
+ */
+.camera-view.popout .user-controls .av-control,
+.camera-view.popout .control-bar .av-control {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.camera-view.popout .av-control.livekit-control.hidden {
+  display: none;
+}
+
 .camera-view .connection-quality-indicator {
   height: 12px;
   width: 12px;

@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@livekit/krisp-noise-filter':
+        specifier: ^0.4.4
+        version: 0.4.4(livekit-client@2.19.2(@types/dom-mediacapture-record@1.0.22))
       debug:
         specifier: ^4.4.3
         version: 4.4.3
@@ -210,6 +213,11 @@ packages:
 
   '@lezer/markdown@1.6.4':
     resolution: {integrity: sha512-N0SxazMj4k65DBfaf1azqtMZd6u7MqluP84/NZnB/io8Td9aleFmAhz9hcbvSfsxT5tdYlJ5qgv5aMJGY4zEtA==}
+
+  '@livekit/krisp-noise-filter@0.4.4':
+    resolution: {integrity: sha512-ljnNPRE0W0IPuMcgRruQZaIz/zWCfqt9vQYXgX0WmojIbHlRrak7BW+FXW4KtXZKi+/dZPNuEL0c2v1wIHR5Cg==}
+    peerDependencies:
+      livekit-client: ^2.18.7
 
   '@livekit/mutex@1.1.1':
     resolution: {integrity: sha512-EsshAucklmpuUAfkABPxJNhzj9v2sG7JuzFDL4ML1oJQSV14sqrpTYnsaOudMAw9yOaW53NU3QQTlUQoRs4czw==}
@@ -1980,6 +1988,12 @@ snapshots:
     dependencies:
       '@lezer/common': 1.5.2
       '@lezer/highlight': 1.2.3
+
+  '@livekit/krisp-noise-filter@0.4.4(livekit-client@2.19.2(@types/dom-mediacapture-record@1.0.22))':
+    dependencies:
+      '@livekit/mutex': 1.1.1
+      '@livekit/protocol': 1.45.8
+      livekit-client: 2.19.2(@types/dom-mediacapture-record@1.0.22)
 
   '@livekit/mutex@1.1.1': {}
 
