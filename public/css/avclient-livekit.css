@@ -18,18 +18,22 @@
 /*
  * Fix: in popped-out (windowed) camera views, Foundry keeps the control bar and
  * the user controls hidden (`display: none`) until the `.camera-view` is
- * hovered. In a dedicated popout window the hover reveal is unreliable, which
- * made the individual camera control buttons disappear. Force them to always be
- * visible in popout mode. Individually hidden livekit controls (e.g. the
- * inactive connect/disconnect button) stay hidden via the rule below.
+ * hovered (core rules live in the `applications` cascade layer). In a dedicated
+ * popout window that hover reveal is unreliable, so the individual camera
+ * control buttons disappear. Force those containers to always be visible in
+ * popout mode. `!important` is required to reliably beat the core (non-important)
+ * `display: none` regardless of cascade-layer ordering. Individually hidden
+ * livekit controls (e.g. the inactive connect/disconnect button) stay hidden
+ * via the rule below.
  */
 .camera-view.popout .bottom .user-controls,
-.camera-view.popout .control-bar {
-  display: flex;
+.camera-view.popout .control-bar,
+.camera-view.popout .notification-bar {
+  display: flex !important;
 }
 
 .camera-view.popout .av-control.livekit-control.hidden {
-  display: none;
+  display: none !important;
 }
 
 .camera-view .connection-quality-indicator {

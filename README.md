@@ -15,6 +15,10 @@ A replacement for the native SimplePeer / EasyRTC A/V client in FoundryVTT. The 
 >
 > The LiveKit AVClient does not remove the need for SSL (https) on your Foundry server. Even if you use one of the hosted solutions below, all modern browsers require that the page that A/V is viewed on be secured. You can follow the following guide to set up SSL on your Foundry server: [Foundry VTT - SSL & HTTPS](https://foundryvtt.com/article/ssl/)
 
+> :information_source: **LiveKit server version requirement**
+>
+> This build bundles the `livekit-client` JS SDK **2.22.1** (signal **protocol v17**). Self-hosted LiveKit servers must be recent enough to speak this protocol. **`livekit-server` v1.11.0 or newer is recommended** (the protocol 17 / single-peer-connection path, with automatic fallback to the legacy dual-PC path for older servers). It has been verified against `livekit-server` **v1.13.6**. No server configuration changes are required to update the client; simply keep your self-hosted server reasonably up to date. Note: the client SDK only requires the OSS `livekit-server` — it does **not** require LiveKit Cloud. The enhanced noise cancellation in this build uses the open-source RNNoise model and runs entirely in the browser, so it also works with a self-hosted server.
+
 **Note:** _At the moment, there are no free public LiveKit servers. You must configure a custom signaling server under Audio/Video communication or use one of the following options:_
 
 [At the Tavern](https://tavern.at) is providing access to a multi-region LiveKit server cluster that we maintain to anyone who subscribes to our [Patreon](https://www.patreon.com/tavern_at) at at least a $5 USD per month level. The fee is used to cover the cost of the server cluster and contribute toward further development of this module.
