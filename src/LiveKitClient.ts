@@ -30,6 +30,7 @@ import {
 import {
   RnnoiseNoiseFilter,
   isRnnoiseSupported,
+  RNNOISE_SAMPLE_RATE,
 } from "./RnnoiseNoiseFilter";
 import { LANG_NAME, MODULE_NAME } from "./utils/constants";
 import LiveKitAVClient from "./LiveKitAVClient";
@@ -59,6 +60,7 @@ export default class LiveKitClient {
 
   audioBroadcastEnabled = false;
   audioTrack: LocalAudioTrack | null = null;
+  audioProcessorContext?: AudioContext;
   breakoutRoom: string | undefined;
   connectionState: ConnectionState = ConnectionState.Disconnected;
   initState: InitState = InitState.Uninitialized;
@@ -461,10 +463,9 @@ export default class LiveKitClient {
       isRnnoiseSupported()
     ) {
       // When enhanced (RNNoise) noise cancellation is enabled, disable the
-      // browser's native noise suppression to avoid double-processing the audio,
-      // and attach the RNNoise track processor. LiveKit manages its lifecycle.
+      // browser's native noise suppression to avoid double-processing the audio.
+      // The RNNoise processor itself is attached in initializeAudioTrack.
       audioCaptureOptions.noiseSuppression = false;
-      audioCaptureOptions.processor = new RnnoiseNoiseFilter();
     }
 
     return audioCaptureOptions;
@@ -621,6 +622,7 @@ export default class LiveKitClient {
     if (audioParams) {
       try {
         this.audioTrack = await createLocalAudioTrack(audioParams);
+        await this.applyRnnoiseFilter();
       } catch (error: unknown) {
         let message = error;
         if (error instanceof Error) {
@@ -639,6 +641,57 @@ export default class LiveKitClient {
       )
     ) {
       await this.audioTrack.mute();
+    }
+  }
+
+  /**
+   * Lazily create (and reuse) a 48kHz AudioContext used by the RNNoise
+   * processor. RNNoise requires a 48kHz sample rate.
+   */
+  private getAudioProcessorContext(): AudioContext {
+    if (
+      !this.audioProcessorContext ||
+      this.audioProcessorContext.state === "closed"
+    ) {
+      this.audioProcessorContext = new AudioContext({
+        sampleRate: RNNOISE_SAMPLE_RATE,
+      });
+    }
+    return this.audioProcessorContext;
+  }
+
+  /**
+   * Attach the RNNoise noise cancellation processor to the current local audio
+   * track when the setting is enabled, the browser supports it, and Music Mode
+   * is not active.
+   *
+   * LiveKit requires an AudioContext to be set on the track before a processor
+   * can be attached, so we provide our own 48kHz context here.
+   */
+  async applyRnnoiseFilter(): Promise<void> {
+    if (!this.audioTrack) {
+      return;
+    }
+
+    const enabled =
+      (game.settings?.get(MODULE_NAME, "enhancedNoiseCancellation") ?? false) &&
+      !(game.settings?.get(MODULE_NAME, "audioMusicMode") ?? false);
+
+    if (!enabled) {
+      return;
+    }
+
+    if (!isRnnoiseSupported()) {
+      log.warn("RNNoise noise filter is not supported on this browser");
+      return;
+    }
+
+    try {
+      this.audioTrack.setAudioContext(this.getAudioProcessorContext());
+      await this.audioTrack.setProcessor(new RnnoiseNoiseFilter());
+      log.info("RNNoise noise filter enabled");
+    } catch (error: unknown) {
+      log.error("Error enabling RNNoise noise filter:", error);
     }
   }
 

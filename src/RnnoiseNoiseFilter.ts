@@ -10,7 +10,7 @@ import { Logger } from "./utils/logger";
 const log = new Logger("RnnoiseNoiseFilter");
 
 // RNNoise operates on 48kHz audio.
-const RNNOISE_SAMPLE_RATE = 48000;
+export const RNNOISE_SAMPLE_RATE = 48000;
 
 /**
  * Build an absolute route to a module asset, respecting any Foundry route
@@ -54,9 +54,13 @@ export class RnnoiseNoiseFilter
   private destinationNode?: MediaStreamAudioDestinationNode;
 
   async init(opts: AudioProcessorOptions): Promise<void> {
-    // RNNoise requires 48kHz, so use a dedicated context rather than the one
-    // provided by LiveKit (which may run at a different sample rate).
-    this.audioContext = new AudioContext({ sampleRate: RNNOISE_SAMPLE_RATE });
+    // Use the AudioContext provided by LiveKit. The caller is responsible for
+    // ensuring it runs at 48kHz, which RNNoise requires.
+    this.audioContext = opts.audioContext;
+
+    if (this.audioContext.state === "suspended") {
+      await this.audioContext.resume();
+    }
 
     const wasmBinary = await loadRnnoise({
       url: assetRoute("rnnoise/rnnoise.wasm"),
@@ -88,23 +92,23 @@ export class RnnoiseNoiseFilter
     await this.init(opts);
   }
 
-  async destroy(): Promise<void> {
+  destroy(): Promise<void> {
     try {
       this.sourceNode?.disconnect();
       this.rnnoiseNode?.disconnect();
       this.rnnoiseNode?.destroy();
       this.destinationNode?.disconnect();
-      if (this.audioContext && this.audioContext.state !== "closed") {
-        await this.audioContext.close();
-      }
     } catch (error: unknown) {
       log.warn("Error while destroying RNNoise noise filter:", error);
     } finally {
+      // Note: the AudioContext is owned by the caller (LiveKitClient) and is
+      // intentionally not closed here so it can be reused across tracks.
       this.sourceNode = undefined;
       this.rnnoiseNode = undefined;
       this.destinationNode = undefined;
       this.audioContext = undefined;
       this.processedTrack = undefined;
     }
+    return Promise.resolve();
   }
 }
