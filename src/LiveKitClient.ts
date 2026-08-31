@@ -616,7 +616,6 @@ export default class LiveKitClient {
     if (audioParams) {
       try {
         this.audioTrack = await createLocalAudioTrack(audioParams);
-        await this.applyKrispNoiseFilter();
       } catch (error: unknown) {
         let message = error;
         if (error instanceof Error) {
@@ -639,15 +638,16 @@ export default class LiveKitClient {
   }
 
   /**
-   * Attach the Krisp (enhanced) noise cancellation processor to the current
+   * Attach the Krisp (enhanced) noise cancellation processor to a published
    * local audio track, when the setting is enabled, the browser supports it,
    * and Music Mode is not active.
+   *
+   * This must run after the track has been published, because LiveKit only
+   * assigns an AudioContext to the LocalAudioTrack at publish time, and the
+   * processor requires it.
+   * @param {LocalAudioTrack} audioTrack   The published local microphone track
    */
-  async applyKrispNoiseFilter(): Promise<void> {
-    if (!this.audioTrack) {
-      return;
-    }
-
+  async applyKrispNoiseFilter(audioTrack: LocalAudioTrack): Promise<void> {
     const enabled =
       (game.settings?.get(MODULE_NAME, "enhancedNoiseCancellation") ?? false) &&
       !(game.settings?.get(MODULE_NAME, "audioMusicMode") ?? false);
@@ -663,7 +663,7 @@ export default class LiveKitClient {
 
     try {
       const krispProcessor = KrispNoiseFilter();
-      await this.audioTrack.setProcessor(krispProcessor);
+      await audioTrack.setProcessor(krispProcessor);
       await krispProcessor.setEnabled(true);
       log.info("Krisp noise filter enabled");
     } catch (error: unknown) {
@@ -1363,6 +1363,18 @@ export default class LiveKitClient {
         log.debug("RoomEvent TrackUnpublished:", args);
       })
       .on(RoomEvent.TrackUnsubscribed, this.onTrackUnSubscribed.bind(this))
+      .on(RoomEvent.LocalTrackPublished, (publication) => {
+        log.debug("RoomEvent LocalTrackPublished:", publication);
+        const track = publication.track;
+        if (
+          publication.source === Track.Source.Microphone &&
+          track instanceof LocalAudioTrack
+        ) {
+          this.applyKrispNoiseFilter(track).catch((error: unknown) => {
+            log.error("Error applying Krisp noise filter:", error);
+          });
+        }
+      })
       .on(RoomEvent.LocalTrackUnpublished, (...args) => {
         log.debug("RoomEvent LocalTrackUnpublished:", args);
       })
