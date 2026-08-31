@@ -23,7 +23,7 @@
   "dependencies": {
     "debug": "^4.4.3",
     "jose": "^6.2.3",
-    "livekit-client": "2.19.2"
+    "livekit-client": "2.22.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
