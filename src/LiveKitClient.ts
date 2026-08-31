@@ -28,9 +28,9 @@ import {
   TrackPublishOptions,
 } from "livekit-client";
 import {
-  KrispNoiseFilter,
-  isKrispNoiseFilterSupported,
-} from "@livekit/krisp-noise-filter";
+  RnnoiseNoiseFilter,
+  isRnnoiseSupported,
+} from "./RnnoiseNoiseFilter";
 import { LANG_NAME, MODULE_NAME } from "./utils/constants";
 import LiveKitAVClient from "./LiveKitAVClient";
 import {
@@ -182,9 +182,9 @@ export default class LiveKitClient {
   }
 
   /**
-   * Add a toggle button for the enhanced (Krisp) noise cancellation filter to
-   * the user's camera control bar. The button is only added when the Krisp
-   * filter is supported by the current browser.
+   * Add a toggle button for the enhanced (RNNoise) noise cancellation filter to
+   * the user's camera control bar. The button is only added when the filter is
+   * supported by the current browser.
    * @param {HTMLElement} element   The element to insert the button before
    */
   addKrispButton(element: HTMLElement): void {
@@ -193,8 +193,8 @@ export default class LiveKitClient {
       return;
     }
 
-    // Don't add the button if the browser doesn't support the Krisp filter
-    if (!isKrispNoiseFilterSupported()) {
+    // Don't add the button if the browser doesn't support the noise filter
+    if (!isRnnoiseSupported()) {
       return;
     }
 
@@ -456,10 +456,15 @@ export default class LiveKitClient {
       audioCaptureOptions.echoCancellation = false;
       audioCaptureOptions.noiseSuppression = false;
       audioCaptureOptions.channelCount = { ideal: 2 };
-    } else if (game.settings?.get(MODULE_NAME, "enhancedNoiseCancellation")) {
-      // When enhanced (Krisp) noise cancellation is enabled, disable the
-      // browser's native noise suppression to avoid double-processing the audio.
+    } else if (
+      (game.settings?.get(MODULE_NAME, "enhancedNoiseCancellation") ?? false) &&
+      isRnnoiseSupported()
+    ) {
+      // When enhanced (RNNoise) noise cancellation is enabled, disable the
+      // browser's native noise suppression to avoid double-processing the audio,
+      // and attach the RNNoise track processor. LiveKit manages its lifecycle.
       audioCaptureOptions.noiseSuppression = false;
+      audioCaptureOptions.processor = new RnnoiseNoiseFilter();
     }
 
     return audioCaptureOptions;
@@ -634,40 +639,6 @@ export default class LiveKitClient {
       )
     ) {
       await this.audioTrack.mute();
-    }
-  }
-
-  /**
-   * Attach the Krisp (enhanced) noise cancellation processor to a published
-   * local audio track, when the setting is enabled, the browser supports it,
-   * and Music Mode is not active.
-   *
-   * This must run after the track has been published, because LiveKit only
-   * assigns an AudioContext to the LocalAudioTrack at publish time, and the
-   * processor requires it.
-   * @param {LocalAudioTrack} audioTrack   The published local microphone track
-   */
-  async applyKrispNoiseFilter(audioTrack: LocalAudioTrack): Promise<void> {
-    const enabled =
-      (game.settings?.get(MODULE_NAME, "enhancedNoiseCancellation") ?? false) &&
-      !(game.settings?.get(MODULE_NAME, "audioMusicMode") ?? false);
-
-    if (!enabled) {
-      return;
-    }
-
-    if (!isKrispNoiseFilterSupported()) {
-      log.warn("Krisp noise filter is not supported on this browser");
-      return;
-    }
-
-    try {
-      const krispProcessor = KrispNoiseFilter();
-      await audioTrack.setProcessor(krispProcessor);
-      await krispProcessor.setEnabled(true);
-      log.info("Krisp noise filter enabled");
-    } catch (error: unknown) {
-      log.error("Error enabling Krisp noise filter:", error);
     }
   }
 
@@ -1363,18 +1334,6 @@ export default class LiveKitClient {
         log.debug("RoomEvent TrackUnpublished:", args);
       })
       .on(RoomEvent.TrackUnsubscribed, this.onTrackUnSubscribed.bind(this))
-      .on(RoomEvent.LocalTrackPublished, (publication) => {
-        log.debug("RoomEvent LocalTrackPublished:", publication);
-        const track = publication.track;
-        if (
-          publication.source === Track.Source.Microphone &&
-          track instanceof LocalAudioTrack
-        ) {
-          this.applyKrispNoiseFilter(track).catch((error: unknown) => {
-            log.error("Error applying Krisp noise filter:", error);
-          });
-        }
-      })
       .on(RoomEvent.LocalTrackUnpublished, (...args) => {
         log.debug("RoomEvent LocalTrackUnpublished:", args);
       })
