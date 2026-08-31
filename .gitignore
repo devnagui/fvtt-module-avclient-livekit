@@ -10,3 +10,5 @@ node_modules/
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+# Packaged module artifact
+fvtt-module-avclient-livekit.zip
