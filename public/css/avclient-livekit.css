@@ -25,11 +25,26 @@
  * `display: none` regardless of cascade-layer ordering. Individually hidden
  * livekit controls (e.g. the inactive connect/disconnect button) stay hidden
  * via the rule below.
+ *
+ * Additionally, the Carolingian UI (crlngn-ui) module positions the popout
+ * `.bottom` bar OUTSIDE the popout by default
+ * (`bottom: calc(var(--control-item-size) * -1)`), only bringing it back on
+ * hover with a 0.2s transition. That leaves the buttons rendered below the
+ * popout, where clicks fall through to the canvas (`#board`) behind them, and
+ * the sliding transition makes them hard to hit. Pin the bar to the bottom of
+ * the popout and disable the transition so the controls are always inside the
+ * window and immediately clickable, without depending on a fragile hover
+ * reveal.
  */
-.camera-view.popout .bottom .user-controls,
 .camera-view.popout .control-bar,
-.camera-view.popout .notification-bar {
+.camera-view.popout .notification-bar,
+.camera-view.popout .bottom .user-controls {
   display: flex !important;
+}
+
+.camera-view.popout .bottom {
+  bottom: 0 !important;
+  transition: none !important;
 }
 
 .camera-view.popout .av-control.livekit-control.hidden {
