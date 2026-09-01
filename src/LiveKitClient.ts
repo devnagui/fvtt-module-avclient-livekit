@@ -25,6 +25,7 @@ import {
   VideoTrack,
   DisconnectReason,
   AudioPresets,
+  AudioPreset,
   TrackPublishOptions,
 } from "livekit-client";
 import { LANG_NAME, MODULE_NAME } from "./utils/constants";
@@ -38,6 +39,7 @@ import { addContextOptions, breakout } from "./LiveKitBreakout";
 import { Logger } from "./utils/logger";
 import { getAccessToken, getTavernAccessToken } from "./utils/auth";
 import { debounceRefreshView } from "./utils/helpers";
+import { NoiseGateFilter, isNoiseGateSupported } from "./NoiseGateFilter";
 
 const log = new Logger();
 
@@ -55,6 +57,7 @@ export default class LiveKitClient {
 
   audioBroadcastEnabled = false;
   audioTrack: LocalAudioTrack | null = null;
+  audioProcessorContext?: AudioContext;
   breakoutRoom: string | undefined;
   connectionState: ConnectionState = ConnectionState.Disconnected;
   initState: InitState = InitState.Uninitialized;
@@ -409,6 +412,14 @@ export default class LiveKitClient {
       audioCaptureOptions.echoCancellation = false;
       audioCaptureOptions.noiseSuppression = false;
       audioCaptureOptions.channelCount = { ideal: 2 };
+    } else {
+      // Apply user-configurable WebRTC audio processing constraints
+      audioCaptureOptions.autoGainControl =
+        game.settings?.get(MODULE_NAME, "audioAutoGainControl") ?? true;
+      audioCaptureOptions.echoCancellation =
+        game.settings?.get(MODULE_NAME, "audioEchoCancellation") ?? true;
+      audioCaptureOptions.noiseSuppression =
+        game.settings?.get(MODULE_NAME, "audioNoiseSuppression") ?? true;
     }
 
     return audioCaptureOptions;
@@ -565,6 +576,7 @@ export default class LiveKitClient {
     if (audioParams) {
       try {
         this.audioTrack = await createLocalAudioTrack(audioParams);
+        await this.applyNoiseGate();
       } catch (error: unknown) {
         let message = error;
         if (error instanceof Error) {
@@ -583,6 +595,48 @@ export default class LiveKitClient {
       )
     ) {
       await this.audioTrack.mute();
+    }
+  }
+
+  /**
+   * Lazily create (and reuse) the AudioContext used by client-side audio
+   * processors such as the noise gate. It is intentionally kept alive between
+   * tracks and is not closed by the processors themselves.
+   */
+  getAudioProcessorContext(): AudioContext {
+    if (!this.audioProcessorContext || this.audioProcessorContext.state === "closed") {
+      this.audioProcessorContext = new AudioContext();
+    }
+    return this.audioProcessorContext;
+  }
+
+  /**
+   * Apply the client-side noise gate processor to the local audio track when
+   * the corresponding setting is enabled and the browser supports it.
+   */
+  async applyNoiseGate(): Promise<void> {
+    if (!this.audioTrack) {
+      return;
+    }
+
+    if (!game.settings?.get(MODULE_NAME, "audioNoiseGate")) {
+      return;
+    }
+
+    if (!isNoiseGateSupported()) {
+      log.warn("Noise gate is not supported in this browser");
+      return;
+    }
+
+    const threshold =
+      game.settings.get(MODULE_NAME, "audioNoiseGateThreshold") ?? -50;
+
+    try {
+      this.audioTrack.setAudioContext(this.getAudioProcessorContext());
+      await this.audioTrack.setProcessor(new NoiseGateFilter(threshold));
+      log.info("Noise gate processor applied to local audio track");
+    } catch (error: unknown) {
+      log.error("Error applying noise gate processor:", error);
     }
   }
 
@@ -1368,7 +1422,7 @@ export default class LiveKitClient {
 
   get trackPublishOptions(): TrackPublishOptions {
     const trackPublishOptions: TrackPublishOptions = {
-      audioPreset: AudioPresets.speech,
+      audioPreset: this.getAudioPreset(),
       simulcast: true,
       videoCodec: "vp8",
       videoSimulcastLayers: [VideoPresets43.h180, VideoPresets43.h360],
@@ -1379,5 +1433,24 @@ export default class LiveKitClient {
     }
 
     return trackPublishOptions;
+  }
+
+  getAudioPreset(): AudioPreset {
+    const preset = game.settings?.get(MODULE_NAME, "audioQualityPreset");
+    switch (preset) {
+      case "telephone":
+        return AudioPresets.telephone;
+      case "music":
+        return AudioPresets.music;
+      case "musicStereo":
+        return AudioPresets.musicStereo;
+      case "musicHighQuality":
+        return AudioPresets.musicHighQuality;
+      case "musicHighQualityStereo":
+        return AudioPresets.musicHighQualityStereo;
+      case "speech":
+      default:
+        return AudioPresets.speech;
+    }
   }
 }
