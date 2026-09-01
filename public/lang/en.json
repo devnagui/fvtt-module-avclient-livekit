@@ -18,6 +18,7 @@
   "LIVEKITAVCLIENT.noiseSuppressionModelRnnoise": "RNNoise (balanced)",
   "LIVEKITAVCLIENT.noiseSuppressionModelSpeex": "Speex (lightest)",
   "LIVEKITAVCLIENT.noiseSuppressionModelGtcrn": "GTCRN (strongest)",
+  "LIVEKITAVCLIENT.noiseSuppressionModelNone": "None (off)",
   "LIVEKITAVCLIENT.audioQualityPreset": "Audio Quality Preset",
   "LIVEKITAVCLIENT.audioQualityPresetHint": "The audio quality/bitrate preset used when publishing your microphone. Higher presets improve fidelity at the cost of bandwidth. Music Mode overrides this with the highest quality preset.",
   "LIVEKITAVCLIENT.audioQualityPresetTelephone": "Telephone (12 kbps)",

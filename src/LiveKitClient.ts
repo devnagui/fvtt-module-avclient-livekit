@@ -32,7 +32,9 @@ import {
   NoiseSuppressorFilter,
   isNoiseSuppressionSupported,
   toNoiseSuppressorModel,
+  NOISE_SUPPRESSION_MODELS,
   NOISE_SUPPRESSION_SAMPLE_RATE,
+  type NoiseSuppressorModel,
 } from "./NoiseSuppressorFilter";
 import { LANG_NAME, MODULE_NAME } from "./utils/constants";
 import LiveKitAVClient from "./LiveKitAVClient";
@@ -64,6 +66,8 @@ export default class LiveKitClient {
   audioBroadcastEnabled = false;
   audioTrack: LocalAudioTrack | null = null;
   audioProcessorContext?: AudioContext;
+  noiseModelMenu: HTMLElement | null = null;
+  noiseModelMenuDismiss: ((event: Event) => void) | null = null;
   breakoutRoom: string | undefined;
   connectionState: ConnectionState = ConnectionState.Disconnected;
   initState: InitState = InitState.Uninitialized;
@@ -187,9 +191,10 @@ export default class LiveKitClient {
   }
 
   /**
-   * Add a toggle button for the enhanced (RNNoise) noise cancellation filter to
-   * the user's camera control bar. The button is only added when the filter is
-   * supported by the current browser.
+   * Add a noise cancellation model selector button to the user's camera control
+   * bar. Clicking the button opens a small menu letting the user pick a noise
+   * suppression model (RNNoise, Speex, or GTCRN) or turn it off ("None"). The
+   * button is only added when the filters are supported by the current browser.
    * @param {HTMLElement} element   The element to insert the button before
    */
   addRnnoiseButton(element: HTMLElement): void {
@@ -203,40 +208,219 @@ export default class LiveKitClient {
       return;
     }
 
-    const enabled =
-      game.settings?.get(MODULE_NAME, "enhancedNoiseCancellation") ?? false;
+    // Remove any stale menu left over from a previous render
+    this.closeNoiseModelMenu();
 
     const rnnoiseButton = document.createElement("button");
     rnnoiseButton.type = "button";
     rnnoiseButton.className =
       "av-control inline-control toggle icon fa-solid fa-fw fa-wand-magic-sparkles livekit-control livekit-rnnoise-control";
-    rnnoiseButton.classList.toggle("active", enabled);
     rnnoiseButton.dataset.tooltip = "";
-    const model = toNoiseSuppressorModel(
-      game.settings?.get(MODULE_NAME, "noiseSuppressionModel"),
-    );
-    rnnoiseButton.ariaLabel = `${
-      game.i18n?.localize(`${LANG_NAME}.enhancedNoiseCancellation`) ??
-      "Enhanced Noise Cancellation"
-    } (${
-      game.i18n?.localize(
-        `${LANG_NAME}.noiseSuppressionModel${
-          model.charAt(0).toUpperCase() + model.slice(1)
-        }`,
-      ) ?? model
-    })`;
+    this.updateNoiseModelButton(rnnoiseButton);
 
-    rnnoiseButton.addEventListener("click", () => {
-      const current =
-        game.settings?.get(MODULE_NAME, "enhancedNoiseCancellation") ?? false;
-      rnnoiseButton.classList.toggle("active", !current);
-      game.settings
-        ?.set(MODULE_NAME, "enhancedNoiseCancellation", !current)
-        .catch((error: unknown) => {
-          log.error("Error toggling enhancedNoiseCancellation:", error);
-        });
+    rnnoiseButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.toggleNoiseModelMenu(rnnoiseButton);
     });
     element.before(rnnoiseButton);
+  }
+
+  /**
+   * Update the noise model button's active state and tooltip to reflect the
+   * current settings.
+   * @param {HTMLElement} button   The noise model selector button
+   */
+  private updateNoiseModelButton(button: HTMLElement): void {
+    const enabled =
+      game.settings?.get(MODULE_NAME, "enhancedNoiseCancellation") ?? false;
+    button.classList.toggle("active", enabled);
+
+    const title =
+      game.i18n?.localize(`${LANG_NAME}.enhancedNoiseCancellation`) ??
+      "Enhanced Noise Cancellation";
+
+    if (enabled) {
+      const model = toNoiseSuppressorModel(
+        game.settings?.get(MODULE_NAME, "noiseSuppressionModel"),
+      );
+      button.ariaLabel = `${title}: ${this.getNoiseModelLabel(model)}`;
+    } else {
+      button.ariaLabel = `${title}: ${this.getNoiseModelLabel("none")}`;
+    }
+  }
+
+  /**
+   * Localize the label for a noise suppression model (or "none").
+   */
+  private getNoiseModelLabel(model: NoiseSuppressorModel | "none"): string {
+    if (model === "none") {
+      return (
+        game.i18n?.localize(`${LANG_NAME}.noiseSuppressionModelNone`) ?? "None"
+      );
+    }
+    const key = `${LANG_NAME}.noiseSuppressionModel${
+      model.charAt(0).toUpperCase() + model.slice(1)
+    }`;
+    return game.i18n?.localize(key) ?? model;
+  }
+
+  /**
+   * Toggle the noise model selection menu open or closed for the given button.
+   */
+  private toggleNoiseModelMenu(button: HTMLElement): void {
+    if (this.noiseModelMenu) {
+      this.closeNoiseModelMenu();
+      return;
+    }
+    this.openNoiseModelMenu(button);
+  }
+
+  /**
+   * Open a popup menu anchored to the given button, allowing the user to select
+   * the active noise suppression model or turn it off.
+   */
+  private openNoiseModelMenu(button: HTMLElement): void {
+    this.closeNoiseModelMenu();
+
+    const enabled =
+      game.settings?.get(MODULE_NAME, "enhancedNoiseCancellation") ?? false;
+    const currentModel = enabled
+      ? toNoiseSuppressorModel(
+          game.settings?.get(MODULE_NAME, "noiseSuppressionModel"),
+        )
+      : "none";
+
+    const menu = document.createElement("div");
+    menu.className = "livekit-noise-menu";
+
+    const header = document.createElement("div");
+    header.className = "livekit-noise-menu-header";
+    header.textContent =
+      game.i18n?.localize(`${LANG_NAME}.noiseSuppressionModel`) ??
+      "Noise Suppression Model";
+    menu.append(header);
+
+    const options: (NoiseSuppressorModel | "none")[] = [
+      "none",
+      ...NOISE_SUPPRESSION_MODELS,
+    ];
+
+    for (const option of options) {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "livekit-noise-menu-item";
+      item.classList.toggle("active", option === currentModel);
+
+      const check = document.createElement("i");
+      check.className = `fa-solid fa-fw ${
+        option === currentModel ? "fa-check" : ""
+      }`;
+      item.append(check);
+
+      const label = document.createElement("span");
+      label.textContent = this.getNoiseModelLabel(option);
+      item.append(label);
+
+      item.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.closeNoiseModelMenu();
+        this.selectNoiseModel(option)
+          .then(() => {
+            this.updateNoiseModelButton(button);
+          })
+          .catch((error: unknown) => {
+            log.error("Error selecting noise suppression model:", error);
+          });
+      });
+
+      menu.append(item);
+    }
+
+    document.body.append(menu);
+
+    // Position the menu just above the button (camera controls are docked at
+    // the bottom of each camera view). Using fixed positioning against the
+    // viewport avoids clipping by the camera view container.
+    const rect = button.getBoundingClientRect();
+    menu.style.position = "fixed";
+    menu.style.left = `${Math.round(rect.left).toString()}px`;
+    menu.style.bottom = `${Math.round(
+      window.innerHeight - rect.top + 4,
+    ).toString()}px`;
+
+    // Keep the menu within the viewport horizontally
+    const menuRect = menu.getBoundingClientRect();
+    if (menuRect.right > window.innerWidth) {
+      menu.style.left = `${Math.round(
+        window.innerWidth - menuRect.width - 4,
+      ).toString()}px`;
+    }
+
+    this.noiseModelMenu = menu;
+
+    // Close the menu when clicking anywhere outside of it or the button
+    this.noiseModelMenuDismiss = (dismissEvent: Event) => {
+      const target = dismissEvent.target;
+      if (
+        target instanceof Node &&
+        (menu.contains(target) || button.contains(target))
+      ) {
+        return;
+      }
+      this.closeNoiseModelMenu();
+    };
+    // Defer attaching so the opening click doesn't immediately dismiss it
+    window.setTimeout(() => {
+      if (this.noiseModelMenuDismiss) {
+        document.addEventListener(
+          "pointerdown",
+          this.noiseModelMenuDismiss,
+          true,
+        );
+      }
+    }, 0);
+  }
+
+  /**
+   * Close and clean up the noise model selection menu if it is open.
+   */
+  private closeNoiseModelMenu(): void {
+    if (this.noiseModelMenuDismiss) {
+      document.removeEventListener(
+        "pointerdown",
+        this.noiseModelMenuDismiss,
+        true,
+      );
+      this.noiseModelMenuDismiss = null;
+    }
+    if (this.noiseModelMenu) {
+      this.noiseModelMenu.remove();
+      this.noiseModelMenu = null;
+    }
+  }
+
+  /**
+   * Apply a noise model selection. Selecting "none" disables enhanced noise
+   * cancellation; selecting a model enables it and sets the active model.
+   */
+  private async selectNoiseModel(
+    model: NoiseSuppressorModel | "none",
+  ): Promise<void> {
+    if (model === "none") {
+      await game.settings?.set(
+        MODULE_NAME,
+        "enhancedNoiseCancellation",
+        false,
+      );
+      return;
+    }
+
+    await game.settings?.set(MODULE_NAME, "noiseSuppressionModel", model);
+    if (!(game.settings?.get(MODULE_NAME, "enhancedNoiseCancellation") ?? false)) {
+      await game.settings?.set(MODULE_NAME, "enhancedNoiseCancellation", true);
+    }
   }
 
   addConnectionQualityIndicator(userId: string): void {
