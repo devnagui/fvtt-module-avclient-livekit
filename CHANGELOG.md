@@ -1,8 +1,11 @@
 # LiveKit A/V Client for FoundryVTT: Changelog
 
-## Unreleased
+## 0.8.0 (devnagui fork)
 
 - Add selectable noise suppression model for Enhanced Noise Cancellation: **RNNoise** (balanced default), **Speex** (lightest on CPU), and **GTCRN** (strongest neural model). Selected via the new "Noise Suppression Model" dropdown; all models run entirely in the browser and work with self-hosted LiveKit servers.
+- Add **Audio Quality Preset** dropdown to choose the outgoing audio bitrate (Telephone → Music High Quality Stereo).
+- Add **WebRTC capture toggles** for Auto Gain Control, Echo Cancellation, and Browser Noise Suppression.
+- Add a client-side **Noise Gate** with an adjustable threshold slider (dB).
 
 ## 0.7.0 (devnagui fork)
 
