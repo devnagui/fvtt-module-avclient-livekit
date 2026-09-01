@@ -1,5 +1,9 @@
 # LiveKit A/V Client for FoundryVTT: Changelog
 
+## Unreleased
+
+- Add selectable noise suppression model for Enhanced Noise Cancellation: **RNNoise** (balanced default), **Speex** (lightest on CPU), and **GTCRN** (strongest neural model). Selected via the new "Noise Suppression Model" dropdown; all models run entirely in the browser and work with self-hosted LiveKit servers.
+
 ## 0.7.0 (devnagui fork)
 
 - Add self-hosted **Enhanced Noise Cancellation** using the open-source RNNoise AI model (`@sapphi-red/web-noise-suppressor`). Runs entirely in the browser via an AudioWorklet, works with self-hosted LiveKit servers, and is enabled by default. A wand toggle button is added to the camera controls, and it is automatically disabled while Music Mode is active.
