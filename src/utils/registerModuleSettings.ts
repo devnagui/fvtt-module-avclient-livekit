@@ -55,11 +55,7 @@ export default function registerModuleSettings(): void {
     default: false,
     type: new foundry.data.fields.BooleanField({ initial: false }),
     onChange: () => {
-      game.webrtc?.client._liveKitClient
-        .changeAudioSource(true)
-        .catch((error: unknown) => {
-          log.error("audioMusicMode: Error changing audio source", error);
-        });
+      game.webrtc?.client._liveKitClient.scheduleAudioSourceChange();
     },
   });
 
@@ -67,18 +63,11 @@ export default function registerModuleSettings(): void {
     name: "LIVEKITAVCLIENT.enhancedNoiseCancellation",
     hint: "LIVEKITAVCLIENT.enhancedNoiseCancellationHint",
     scope: "client",
-    config: true,
+    config: false,
     default: true,
     type: new foundry.data.fields.BooleanField({ initial: true }),
     onChange: () => {
-      game.webrtc?.client._liveKitClient
-        .changeAudioSource(true)
-        .catch((error: unknown) => {
-          log.error(
-            "enhancedNoiseCancellation: Error changing audio source",
-            error,
-          );
-        });
+      game.webrtc?.client._liveKitClient.scheduleAudioSourceChange();
     },
   });
 
@@ -89,11 +78,11 @@ export default function registerModuleSettings(): void {
     hint: "LIVEKITAVCLIENT.noiseSuppressionModelHint",
     scope: "client",
     config: true,
-    default: "rnnoise",
+    default: "gtcrn",
     type: new foundry.data.fields.StringField({
       required: true,
       blank: false,
-      initial: "rnnoise",
+      initial: "gtcrn",
       choices: {
         rnnoise: "LIVEKITAVCLIENT.noiseSuppressionModelRnnoise",
         speex: "LIVEKITAVCLIENT.noiseSuppressionModelSpeex",
@@ -101,14 +90,7 @@ export default function registerModuleSettings(): void {
       },
     }),
     onChange: () => {
-      game.webrtc?.client._liveKitClient
-        .changeAudioSource(true)
-        .catch((error: unknown) => {
-          log.error(
-            "noiseSuppressionModel: Error changing audio source",
-            error,
-          );
-        });
+      game.webrtc?.client._liveKitClient.scheduleAudioSourceChange();
     },
   });
 
@@ -134,11 +116,7 @@ export default function registerModuleSettings(): void {
       },
     }),
     onChange: () => {
-      game.webrtc?.client._liveKitClient
-        .changeAudioSource(true)
-        .catch((error: unknown) => {
-          log.error("audioQualityPreset: Error changing audio source", error);
-        });
+      game.webrtc?.client._liveKitClient.scheduleAudioSourceChange();
     },
   });
 
@@ -151,14 +129,7 @@ export default function registerModuleSettings(): void {
     default: true,
     type: new foundry.data.fields.BooleanField({ initial: true }),
     onChange: () => {
-      game.webrtc?.client._liveKitClient
-        .changeAudioSource(true)
-        .catch((error: unknown) => {
-          log.error(
-            "audioAutoGainControl: Error changing audio source",
-            error,
-          );
-        });
+      game.webrtc?.client._liveKitClient.scheduleAudioSourceChange();
     },
   });
 
@@ -170,14 +141,7 @@ export default function registerModuleSettings(): void {
     default: true,
     type: new foundry.data.fields.BooleanField({ initial: true }),
     onChange: () => {
-      game.webrtc?.client._liveKitClient
-        .changeAudioSource(true)
-        .catch((error: unknown) => {
-          log.error(
-            "audioEchoCancellation: Error changing audio source",
-            error,
-          );
-        });
+      game.webrtc?.client._liveKitClient.scheduleAudioSourceChange();
     },
   });
 
@@ -189,14 +153,7 @@ export default function registerModuleSettings(): void {
     default: true,
     type: new foundry.data.fields.BooleanField({ initial: true }),
     onChange: () => {
-      game.webrtc?.client._liveKitClient
-        .changeAudioSource(true)
-        .catch((error: unknown) => {
-          log.error(
-            "audioNoiseSuppression: Error changing audio source",
-            error,
-          );
-        });
+      game.webrtc?.client._liveKitClient.scheduleAudioSourceChange();
     },
   });
 
@@ -209,11 +166,7 @@ export default function registerModuleSettings(): void {
     default: false,
     type: new foundry.data.fields.BooleanField({ initial: false }),
     onChange: () => {
-      game.webrtc?.client._liveKitClient
-        .changeAudioSource(true)
-        .catch((error: unknown) => {
-          log.error("audioNoiseGate: Error changing audio source", error);
-        });
+      game.webrtc?.client._liveKitClient.scheduleAudioSourceChange();
     },
   });
 
@@ -232,14 +185,7 @@ export default function registerModuleSettings(): void {
       initial: -50,
     }),
     onChange: () => {
-      game.webrtc?.client._liveKitClient
-        .changeAudioSource(true)
-        .catch((error: unknown) => {
-          log.error(
-            "audioNoiseGateThreshold: Error changing audio source",
-            error,
-          );
-        });
+      game.webrtc?.client._liveKitClient.scheduleAudioSourceChange();
     },
   });
 

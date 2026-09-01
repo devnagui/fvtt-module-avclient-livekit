@@ -32,7 +32,6 @@ import {
   NoiseSuppressorFilter,
   isNoiseSuppressionSupported,
   toNoiseSuppressorModel,
-  NOISE_SUPPRESSION_MODELS,
   NOISE_SUPPRESSION_SAMPLE_RATE,
   type NoiseSuppressorModel,
 } from "./NoiseSuppressorFilter";
@@ -68,6 +67,8 @@ export default class LiveKitClient {
   audioProcessorContext?: AudioContext;
   noiseModelMenu: HTMLElement | null = null;
   noiseModelMenuDismiss: ((event: Event) => void) | null = null;
+  noiseModelMenuTimeout: number | null = null;
+  scheduleAudioSourceChange: () => void = () => undefined;
   breakoutRoom: string | undefined;
   connectionState: ConnectionState = ConnectionState.Disconnected;
   initState: InitState = InitState.Uninitialized;
@@ -111,6 +112,13 @@ export default class LiveKitClient {
       this.avMaster.render.bind(this.liveKitAvClient),
       2000,
     );
+    // Debounce audio-source re-application so rapidly changing several audio
+    // settings (e.g. via the reset button) only re-publishes the track once.
+    this.scheduleAudioSourceChange = foundry.utils.debounce(() => {
+      this.changeAudioSource(true).catch((error: unknown) => {
+        log.error("Error changing audio source:", error);
+      });
+    }, 300);
     Hooks.callAll("liveKitClientAvailable", this);
   }
 
@@ -238,7 +246,7 @@ export default class LiveKitClient {
 
     const title =
       game.i18n?.localize(`${LANG_NAME}.enhancedNoiseCancellation`) ??
-      "Enhanced Noise Cancellation";
+      "Noise Cancellation";
 
     if (enabled) {
       const model = toNoiseSuppressorModel(
@@ -277,36 +285,109 @@ export default class LiveKitClient {
   }
 
   /**
-   * Open a popup menu anchored to the given button, allowing the user to select
-   * the active noise suppression model or turn it off.
+   * Open a popup menu anchored to the given button. The menu lets the user pick
+   * the active noise cancellation model (or "None"), toggle the audio
+   * refinements (auto gain control, echo cancellation, noise gate), adjust the
+   * noise gate threshold, and reset everything to defaults.
    */
   private openNoiseModelMenu(button: HTMLElement): void {
     this.closeNoiseModelMenu();
 
+    const menu = document.createElement("div");
+    menu.className = "livekit-noise-menu";
+    document.body.append(menu);
+    this.noiseModelMenu = menu;
+
+    this.renderNoiseMenuContent(menu, button);
+    this.positionNoiseMenu(menu, button);
+
+    // Close the menu when clicking anywhere outside of it or the button
+    this.noiseModelMenuDismiss = (dismissEvent: Event) => {
+      const target = dismissEvent.target;
+      if (
+        target instanceof Node &&
+        (menu.contains(target) || button.contains(target))
+      ) {
+        return;
+      }
+      this.closeNoiseModelMenu();
+    };
+    // Defer attaching so the opening click doesn't immediately dismiss it
+    this.noiseModelMenuTimeout = window.setTimeout(() => {
+      this.noiseModelMenuTimeout = null;
+      if (this.noiseModelMenuDismiss) {
+        document.addEventListener(
+          "pointerdown",
+          this.noiseModelMenuDismiss,
+          true,
+        );
+      }
+    }, 0);
+  }
+
+  /**
+   * Position the menu just above the given button using fixed positioning so it
+   * is not clipped by the camera view container.
+   */
+  private positionNoiseMenu(menu: HTMLElement, button: HTMLElement): void {
+    const rect = button.getBoundingClientRect();
+    menu.style.position = "fixed";
+    menu.style.left = `${Math.round(rect.left).toString()}px`;
+    menu.style.bottom = `${Math.round(
+      window.innerHeight - rect.top + 4,
+    ).toString()}px`;
+
+    // Keep the menu within the viewport horizontally
+    const menuRect = menu.getBoundingClientRect();
+    if (menuRect.right > window.innerWidth) {
+      menu.style.left = `${Math.round(
+        window.innerWidth - menuRect.width - 4,
+      ).toString()}px`;
+    }
+  }
+
+  /**
+   * (Re)build the contents of the noise menu to reflect the current settings.
+   * Rebuilding replaces all child nodes, so the event listeners attached to the
+   * previous nodes are released for garbage collection.
+   */
+  private renderNoiseMenuContent(menu: HTMLElement, button: HTMLElement): void {
+    menu.replaceChildren();
+
     const enabled =
       game.settings?.get(MODULE_NAME, "enhancedNoiseCancellation") ?? false;
-    const currentModel = enabled
+    const currentModel: NoiseSuppressorModel | "none" = enabled
       ? toNoiseSuppressorModel(
           game.settings?.get(MODULE_NAME, "noiseSuppressionModel"),
         )
       : "none";
+    const refinementsDisabled = currentModel === "none";
 
-    const menu = document.createElement("div");
-    menu.className = "livekit-noise-menu";
+    // Refresh helper: rebuild + reposition + update the control-bar button
+    const refresh = () => {
+      if (this.noiseModelMenu === menu) {
+        this.renderNoiseMenuContent(menu, button);
+        this.positionNoiseMenu(menu, button);
+      }
+      this.updateNoiseModelButton(button);
+    };
 
+    // Header
     const header = document.createElement("div");
     header.className = "livekit-noise-menu-header";
     header.textContent =
       game.i18n?.localize(`${LANG_NAME}.noiseSuppressionModel`) ??
-      "Noise Suppression Model";
+      "Noise Cancellation";
     menu.append(header);
 
-    const options: (NoiseSuppressorModel | "none")[] = [
+    // Model options
+    const models: (NoiseSuppressorModel | "none")[] = [
       "none",
-      ...NOISE_SUPPRESSION_MODELS,
+      "speex",
+      "rnnoise",
+      "gtcrn",
     ];
-
-    for (const option of options) {
+    for (const option of models) {
       const item = document.createElement("button");
       item.type = "button";
       item.className = "livekit-noise-menu-item";
@@ -325,11 +406,8 @@ export default class LiveKitClient {
       item.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        this.closeNoiseModelMenu();
         this.selectNoiseModel(option)
-          .then(() => {
-            this.updateNoiseModelButton(button);
-          })
+          .then(refresh)
           .catch((error: unknown) => {
             log.error("Error selecting noise suppression model:", error);
           });
@@ -338,55 +416,145 @@ export default class LiveKitClient {
       menu.append(item);
     }
 
-    document.body.append(menu);
+    // Divider + refinements subheader
+    const divider = document.createElement("div");
+    divider.className = "livekit-noise-menu-divider";
+    menu.append(divider);
 
-    // Position the menu just above the button (camera controls are docked at
-    // the bottom of each camera view). Using fixed positioning against the
-    // viewport avoids clipping by the camera view container.
-    const rect = button.getBoundingClientRect();
-    menu.style.position = "fixed";
-    menu.style.left = `${Math.round(rect.left).toString()}px`;
-    menu.style.bottom = `${Math.round(
-      window.innerHeight - rect.top + 4,
-    ).toString()}px`;
+    const subheader = document.createElement("div");
+    subheader.className = "livekit-noise-menu-subheader";
+    subheader.textContent =
+      game.i18n?.localize(`${LANG_NAME}.noiseRefinements`) ?? "Refinements";
+    menu.append(subheader);
 
-    // Keep the menu within the viewport horizontally
-    const menuRect = menu.getBoundingClientRect();
-    if (menuRect.right > window.innerWidth) {
-      menu.style.left = `${Math.round(
-        window.innerWidth - menuRect.width - 4,
-      ).toString()}px`;
+    // Refinement toggles (disabled when no model is selected)
+    const toggles: {
+      key: "audioAutoGainControl" | "audioEchoCancellation" | "audioNoiseGate";
+      defaultValue: boolean;
+    }[] = [
+      { key: "audioAutoGainControl", defaultValue: true },
+      { key: "audioEchoCancellation", defaultValue: true },
+      { key: "audioNoiseGate", defaultValue: false },
+    ];
+
+    for (const toggle of toggles) {
+      const value =
+        game.settings?.get(MODULE_NAME, toggle.key) ?? toggle.defaultValue;
+
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "livekit-noise-menu-item toggle";
+      item.classList.toggle("active", value && !refinementsDisabled);
+      item.classList.toggle("disabled", refinementsDisabled);
+      item.disabled = refinementsDisabled;
+
+      const check = document.createElement("i");
+      check.className = `fa-solid fa-fw ${
+        value ? "fa-square-check" : "fa-square"
+      }`;
+      item.append(check);
+
+      const label = document.createElement("span");
+      label.textContent =
+        game.i18n?.localize(`${LANG_NAME}.${toggle.key}`) ?? toggle.key;
+      item.append(label);
+
+      if (!refinementsDisabled) {
+        item.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          game.settings
+            ?.set(MODULE_NAME, toggle.key, !value)
+            .then(refresh)
+            .catch((error: unknown) => {
+              log.error(`Error toggling ${toggle.key}:`, error);
+            });
+        });
+      }
+
+      menu.append(item);
     }
 
-    this.noiseModelMenu = menu;
+    // Noise gate threshold slider (disabled unless a model and the gate are on)
+    const gateOn = game.settings?.get(MODULE_NAME, "audioNoiseGate") ?? false;
+    const sliderDisabled = refinementsDisabled || !gateOn;
+    const thresholdValue =
+      game.settings?.get(MODULE_NAME, "audioNoiseGateThreshold") ?? -50;
+    const thresholdName =
+      game.i18n?.localize(`${LANG_NAME}.audioNoiseGateThreshold`) ??
+      "Noise Gate Threshold (dB)";
 
-    // Close the menu when clicking anywhere outside of it or the button
-    this.noiseModelMenuDismiss = (dismissEvent: Event) => {
-      const target = dismissEvent.target;
-      if (
-        target instanceof Node &&
-        (menu.contains(target) || button.contains(target))
-      ) {
-        return;
-      }
-      this.closeNoiseModelMenu();
-    };
-    // Defer attaching so the opening click doesn't immediately dismiss it
-    window.setTimeout(() => {
-      if (this.noiseModelMenuDismiss) {
-        document.addEventListener(
-          "pointerdown",
-          this.noiseModelMenuDismiss,
-          true,
-        );
-      }
-    }, 0);
+    const sliderRow = document.createElement("div");
+    sliderRow.className = "livekit-noise-menu-slider";
+    sliderRow.classList.toggle("disabled", sliderDisabled);
+
+    const sliderLabel = document.createElement("span");
+    sliderLabel.className = "livekit-noise-menu-slider-label";
+    sliderLabel.textContent = `${thresholdName}: ${thresholdValue.toString()}`;
+    sliderRow.append(sliderLabel);
+
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = "-80";
+    slider.max = "0";
+    slider.step = "1";
+    slider.value = thresholdValue.toString();
+    slider.disabled = sliderDisabled;
+    slider.addEventListener("input", () => {
+      sliderLabel.textContent = `${thresholdName}: ${slider.value}`;
+    });
+    slider.addEventListener("change", () => {
+      game.settings
+        ?.set(MODULE_NAME, "audioNoiseGateThreshold", Number(slider.value))
+        .catch((error: unknown) => {
+          log.error("Error setting audioNoiseGateThreshold:", error);
+        });
+    });
+    // Keep the outside-click dismiss from firing while dragging the slider
+    slider.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+    });
+    sliderRow.append(slider);
+    menu.append(sliderRow);
+
+    // Divider + reset to defaults
+    const divider2 = document.createElement("div");
+    divider2.className = "livekit-noise-menu-divider";
+    menu.append(divider2);
+
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.className = "livekit-noise-menu-item reset";
+    const resetIcon = document.createElement("i");
+    resetIcon.className = "fa-solid fa-fw fa-rotate-left";
+    reset.append(resetIcon);
+    const resetLabel = document.createElement("span");
+    resetLabel.textContent =
+      game.i18n?.localize(`${LANG_NAME}.noiseResetDefaults`) ??
+      "Reset to defaults";
+    reset.append(resetLabel);
+    reset.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.resetNoiseSettings()
+        .then(refresh)
+        .catch((error: unknown) => {
+          log.error("Error resetting noise settings:", error);
+        });
+    });
+    menu.append(reset);
   }
 
   /**
-   * Close and clean up the noise model selection menu if it is open.
+   * Close and clean up the noise model selection menu if it is open. Removes the
+   * outside-click listener, cancels the pending attach timeout, and detaches the
+   * menu element so all of its child listeners can be garbage collected.
    */
   private closeNoiseModelMenu(): void {
+    if (this.noiseModelMenuTimeout !== null) {
+      window.clearTimeout(this.noiseModelMenuTimeout);
+      this.noiseModelMenuTimeout = null;
+    }
     if (this.noiseModelMenuDismiss) {
       document.removeEventListener(
         "pointerdown",
@@ -409,18 +577,32 @@ export default class LiveKitClient {
     model: NoiseSuppressorModel | "none",
   ): Promise<void> {
     if (model === "none") {
-      await game.settings?.set(
-        MODULE_NAME,
-        "enhancedNoiseCancellation",
-        false,
-      );
+      await game.settings?.set(MODULE_NAME, "enhancedNoiseCancellation", false);
       return;
     }
 
     await game.settings?.set(MODULE_NAME, "noiseSuppressionModel", model);
-    if (!(game.settings?.get(MODULE_NAME, "enhancedNoiseCancellation") ?? false)) {
+    if (
+      !(game.settings?.get(MODULE_NAME, "enhancedNoiseCancellation") ?? false)
+    ) {
       await game.settings?.set(MODULE_NAME, "enhancedNoiseCancellation", true);
     }
+  }
+
+  /**
+   * Reset all noise-related client settings to their defaults. This clears any
+   * stale saved state (for example an old model that is no longer offered). The
+   * settings' onChange handlers coalesce into a single debounced audio-source
+   * change.
+   */
+  private async resetNoiseSettings(): Promise<void> {
+    await game.settings?.set(MODULE_NAME, "enhancedNoiseCancellation", true);
+    await game.settings?.set(MODULE_NAME, "noiseSuppressionModel", "gtcrn");
+    await game.settings?.set(MODULE_NAME, "audioAutoGainControl", true);
+    await game.settings?.set(MODULE_NAME, "audioEchoCancellation", true);
+    await game.settings?.set(MODULE_NAME, "audioNoiseSuppression", true);
+    await game.settings?.set(MODULE_NAME, "audioNoiseGate", false);
+    await game.settings?.set(MODULE_NAME, "audioNoiseGateThreshold", -50);
   }
 
   addConnectionQualityIndicator(userId: string): void {
@@ -898,20 +1080,30 @@ export default class LiveKitClient {
       game.settings?.get(MODULE_NAME, "enhancedNoiseCancellation") ?? false;
     const noiseGateEnabled =
       game.settings?.get(MODULE_NAME, "audioNoiseGate") ?? false;
+    const gateThreshold =
+      game.settings?.get(MODULE_NAME, "audioNoiseGateThreshold") ?? -50;
 
     try {
       if (noiseCancellationEnabled) {
         const model = toNoiseSuppressorModel(
           game.settings?.get(MODULE_NAME, "noiseSuppressionModel"),
         );
+        // When the noise gate is also enabled, chain it before the model so
+        // quiet background noise is gated out prior to denoising.
+        const gate =
+          noiseGateEnabled && isNoiseGateSupported() ? gateThreshold : undefined;
         this.audioTrack.setAudioContext(this.getAudioProcessorContext());
-        await this.audioTrack.setProcessor(new NoiseSuppressorFilter(model));
-        log.info(`Noise suppression enabled (model: ${model})`);
+        await this.audioTrack.setProcessor(
+          new NoiseSuppressorFilter(model, gate),
+        );
+        log.info(
+          `Noise suppression enabled (model: ${model}${
+            gate !== undefined ? " + noise gate" : ""
+          })`,
+        );
       } else if (noiseGateEnabled && isNoiseGateSupported()) {
-        const threshold =
-          game.settings?.get(MODULE_NAME, "audioNoiseGateThreshold") ?? -50;
         this.audioTrack.setAudioContext(this.getAudioProcessorContext());
-        await this.audioTrack.setProcessor(new NoiseGateFilter(threshold));
+        await this.audioTrack.setProcessor(new NoiseGateFilter(gateThreshold));
         log.info("Noise gate processor applied to local audio track");
       }
     } catch (error: unknown) {
