@@ -112,6 +112,137 @@ export default function registerModuleSettings(): void {
     },
   });
 
+  // Audio quality preset for outgoing audio publishing
+  game.settings?.register(MODULE_NAME, "audioQualityPreset", {
+    name: "LIVEKITAVCLIENT.audioQualityPreset",
+    hint: "LIVEKITAVCLIENT.audioQualityPresetHint",
+    scope: "client",
+    config: true,
+    default: "speech",
+    type: new foundry.data.fields.StringField({
+      required: true,
+      blank: false,
+      initial: "speech",
+      choices: {
+        telephone: "LIVEKITAVCLIENT.audioQualityPresetTelephone",
+        speech: "LIVEKITAVCLIENT.audioQualityPresetSpeech",
+        music: "LIVEKITAVCLIENT.audioQualityPresetMusic",
+        musicStereo: "LIVEKITAVCLIENT.audioQualityPresetMusicStereo",
+        musicHighQuality: "LIVEKITAVCLIENT.audioQualityPresetMusicHighQuality",
+        musicHighQualityStereo:
+          "LIVEKITAVCLIENT.audioQualityPresetMusicHighQualityStereo",
+      },
+    }),
+    onChange: () => {
+      game.webrtc?.client._liveKitClient
+        .changeAudioSource(true)
+        .catch((error: unknown) => {
+          log.error("audioQualityPreset: Error changing audio source", error);
+        });
+    },
+  });
+
+  // WebRTC audio capture constraint toggles
+  game.settings?.register(MODULE_NAME, "audioAutoGainControl", {
+    name: "LIVEKITAVCLIENT.audioAutoGainControl",
+    hint: "LIVEKITAVCLIENT.audioAutoGainControlHint",
+    scope: "client",
+    config: true,
+    default: true,
+    type: new foundry.data.fields.BooleanField({ initial: true }),
+    onChange: () => {
+      game.webrtc?.client._liveKitClient
+        .changeAudioSource(true)
+        .catch((error: unknown) => {
+          log.error(
+            "audioAutoGainControl: Error changing audio source",
+            error,
+          );
+        });
+    },
+  });
+
+  game.settings?.register(MODULE_NAME, "audioEchoCancellation", {
+    name: "LIVEKITAVCLIENT.audioEchoCancellation",
+    hint: "LIVEKITAVCLIENT.audioEchoCancellationHint",
+    scope: "client",
+    config: true,
+    default: true,
+    type: new foundry.data.fields.BooleanField({ initial: true }),
+    onChange: () => {
+      game.webrtc?.client._liveKitClient
+        .changeAudioSource(true)
+        .catch((error: unknown) => {
+          log.error(
+            "audioEchoCancellation: Error changing audio source",
+            error,
+          );
+        });
+    },
+  });
+
+  game.settings?.register(MODULE_NAME, "audioNoiseSuppression", {
+    name: "LIVEKITAVCLIENT.audioNoiseSuppression",
+    hint: "LIVEKITAVCLIENT.audioNoiseSuppressionHint",
+    scope: "client",
+    config: true,
+    default: true,
+    type: new foundry.data.fields.BooleanField({ initial: true }),
+    onChange: () => {
+      game.webrtc?.client._liveKitClient
+        .changeAudioSource(true)
+        .catch((error: unknown) => {
+          log.error(
+            "audioNoiseSuppression: Error changing audio source",
+            error,
+          );
+        });
+    },
+  });
+
+  // Noise gate (client-side, applied as a track processor)
+  game.settings?.register(MODULE_NAME, "audioNoiseGate", {
+    name: "LIVEKITAVCLIENT.audioNoiseGate",
+    hint: "LIVEKITAVCLIENT.audioNoiseGateHint",
+    scope: "client",
+    config: true,
+    default: false,
+    type: new foundry.data.fields.BooleanField({ initial: false }),
+    onChange: () => {
+      game.webrtc?.client._liveKitClient
+        .changeAudioSource(true)
+        .catch((error: unknown) => {
+          log.error("audioNoiseGate: Error changing audio source", error);
+        });
+    },
+  });
+
+  game.settings?.register(MODULE_NAME, "audioNoiseGateThreshold", {
+    name: "LIVEKITAVCLIENT.audioNoiseGateThreshold",
+    hint: "LIVEKITAVCLIENT.audioNoiseGateThresholdHint",
+    scope: "client",
+    config: true,
+    default: -50,
+    type: new foundry.data.fields.NumberField({
+      required: true,
+      nullable: false,
+      min: -80,
+      max: 0,
+      step: 1,
+      initial: -50,
+    }),
+    onChange: () => {
+      game.webrtc?.client._liveKitClient
+        .changeAudioSource(true)
+        .catch((error: unknown) => {
+          log.error(
+            "audioNoiseGateThreshold: Error changing audio source",
+            error,
+          );
+        });
+    },
+  });
+
   game.settings?.register(MODULE_NAME, "useExternalAV", {
     name: "LIVEKITAVCLIENT.useExternalAV",
     hint: "LIVEKITAVCLIENT.useExternalAVHint",

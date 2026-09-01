@@ -25,6 +25,7 @@ import {
   VideoTrack,
   DisconnectReason,
   AudioPresets,
+  AudioPreset,
   TrackPublishOptions,
 } from "livekit-client";
 import {
@@ -44,6 +45,7 @@ import { addContextOptions, breakout } from "./LiveKitBreakout";
 import { Logger } from "./utils/logger";
 import { getAccessToken, getTavernAccessToken } from "./utils/auth";
 import { debounceRefreshView } from "./utils/helpers";
+import { NoiseGateFilter, isNoiseGateSupported } from "./NoiseGateFilter";
 
 const log = new Logger();
 
@@ -469,14 +471,25 @@ export default class LiveKitClient {
       audioCaptureOptions.echoCancellation = false;
       audioCaptureOptions.noiseSuppression = false;
       audioCaptureOptions.channelCount = { ideal: 2 };
-    } else if (
-      (game.settings?.get(MODULE_NAME, "enhancedNoiseCancellation") ?? false) &&
-      isNoiseSuppressionSupported()
-    ) {
+    } else {
+      // Apply user-configurable WebRTC audio processing constraints
+      audioCaptureOptions.autoGainControl =
+        game.settings?.get(MODULE_NAME, "audioAutoGainControl") ?? true;
+      audioCaptureOptions.echoCancellation =
+        game.settings?.get(MODULE_NAME, "audioEchoCancellation") ?? true;
+      audioCaptureOptions.noiseSuppression =
+        game.settings?.get(MODULE_NAME, "audioNoiseSuppression") ?? true;
+
       // When enhanced noise cancellation is enabled, disable the browser's
       // native noise suppression to avoid double-processing the audio. The
       // noise suppression processor itself is attached in initializeAudioTrack.
-      audioCaptureOptions.noiseSuppression = false;
+      if (
+        (game.settings?.get(MODULE_NAME, "enhancedNoiseCancellation") ??
+          false) &&
+        isNoiseSuppressionSupported()
+      ) {
+        audioCaptureOptions.noiseSuppression = false;
+      }
     }
 
     return audioCaptureOptions;
@@ -633,7 +646,7 @@ export default class LiveKitClient {
     if (audioParams) {
       try {
         this.audioTrack = await createLocalAudioTrack(audioParams);
-        await this.applyRnnoiseFilter();
+        await this.applyAudioProcessors();
       } catch (error: unknown) {
         let message = error;
         if (error instanceof Error) {
@@ -656,9 +669,11 @@ export default class LiveKitClient {
   }
 
   /**
-   * Lazily create (and reuse) a 48kHz AudioContext used by the noise
-   * suppression processor. RNNoise requires a 48kHz sample rate; the other
-   * models resample internally, so a single 48kHz context works for all.
+   * Lazily create (and reuse) a 48kHz AudioContext used by the client-side
+   * audio processors. RNNoise requires a 48kHz sample rate; the other noise
+   * suppression models and the noise gate resample internally, so a single
+   * 48kHz context works for all of them. It is intentionally kept alive between
+   * tracks and is not closed by the processors themselves.
    */
   private getAudioProcessorContext(): AudioContext {
     if (
@@ -673,42 +688,50 @@ export default class LiveKitClient {
   }
 
   /**
-   * Attach the client-side noise suppression processor to the current local
-   * audio track when the setting is enabled, the browser supports it, and Music
-   * Mode is not active. The model (RNNoise, Speex, or GTCRN) is selected via the
-   * `noiseSuppressionModel` setting.
+   * Attach a client-side audio TrackProcessor to the current local audio track.
    *
-   * LiveKit requires an AudioContext to be set on the track before a processor
-   * can be attached, so we provide our own 48kHz context here.
+   * LiveKit allows a single processor per track, so the enhanced noise
+   * suppression filter (RNNoise, Speex, or GTCRN) takes precedence; when it is
+   * disabled, the standalone noise gate is used instead. Both are skipped while
+   * Music Mode is active. LiveKit requires an AudioContext to be set on the
+   * track before a processor can be attached, so we provide our own 48kHz
+   * context here.
    */
-  async applyRnnoiseFilter(): Promise<void> {
+  async applyAudioProcessors(): Promise<void> {
     if (!this.audioTrack) {
       return;
     }
 
-    const enabled =
-      (game.settings?.get(MODULE_NAME, "enhancedNoiseCancellation") ?? false) &&
-      !(game.settings?.get(MODULE_NAME, "audioMusicMode") ?? false);
-
-    if (!enabled) {
+    if (game.settings?.get(MODULE_NAME, "audioMusicMode") ?? false) {
       return;
     }
 
     if (!isNoiseSuppressionSupported()) {
-      log.warn("Noise suppression is not supported on this browser");
       return;
     }
 
-    const model = toNoiseSuppressorModel(
-      game.settings?.get(MODULE_NAME, "noiseSuppressionModel"),
-    );
+    const noiseCancellationEnabled =
+      game.settings?.get(MODULE_NAME, "enhancedNoiseCancellation") ?? false;
+    const noiseGateEnabled =
+      game.settings?.get(MODULE_NAME, "audioNoiseGate") ?? false;
 
     try {
-      this.audioTrack.setAudioContext(this.getAudioProcessorContext());
-      await this.audioTrack.setProcessor(new NoiseSuppressorFilter(model));
-      log.info(`Noise suppression enabled (model: ${model})`);
+      if (noiseCancellationEnabled) {
+        const model = toNoiseSuppressorModel(
+          game.settings?.get(MODULE_NAME, "noiseSuppressionModel"),
+        );
+        this.audioTrack.setAudioContext(this.getAudioProcessorContext());
+        await this.audioTrack.setProcessor(new NoiseSuppressorFilter(model));
+        log.info(`Noise suppression enabled (model: ${model})`);
+      } else if (noiseGateEnabled && isNoiseGateSupported()) {
+        const threshold =
+          game.settings?.get(MODULE_NAME, "audioNoiseGateThreshold") ?? -50;
+        this.audioTrack.setAudioContext(this.getAudioProcessorContext());
+        await this.audioTrack.setProcessor(new NoiseGateFilter(threshold));
+        log.info("Noise gate processor applied to local audio track");
+      }
     } catch (error: unknown) {
-      log.error("Error enabling noise suppression:", error);
+      log.error("Error applying audio processor:", error);
     }
   }
 
@@ -1495,7 +1518,7 @@ export default class LiveKitClient {
 
   get trackPublishOptions(): TrackPublishOptions {
     const trackPublishOptions: TrackPublishOptions = {
-      audioPreset: AudioPresets.speech,
+      audioPreset: this.getAudioPreset(),
       simulcast: true,
       videoCodec: "vp8",
       videoSimulcastLayers: [VideoPresets43.h180, VideoPresets43.h360],
@@ -1506,5 +1529,24 @@ export default class LiveKitClient {
     }
 
     return trackPublishOptions;
+  }
+
+  getAudioPreset(): AudioPreset {
+    const preset = game.settings?.get(MODULE_NAME, "audioQualityPreset");
+    switch (preset) {
+      case "telephone":
+        return AudioPresets.telephone;
+      case "music":
+        return AudioPresets.music;
+      case "musicStereo":
+        return AudioPresets.musicStereo;
+      case "musicHighQuality":
+        return AudioPresets.musicHighQuality;
+      case "musicHighQualityStereo":
+        return AudioPresets.musicHighQualityStereo;
+      case "speech":
+      default:
+        return AudioPresets.speech;
+    }
   }
 }
