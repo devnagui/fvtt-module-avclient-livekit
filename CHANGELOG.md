@@ -1,5 +1,9 @@
 # LiveKit A/V Client for FoundryVTT: Changelog
 
+## 0.8.1 (devnagui fork)
+
+- Fix participant audio going silent after a camera view is minimized, moved, or rebuilt by a UI module (e.g. Carolingian UI). Remote audio is now re-attached on every camera view render, and paused media elements are resumed.
+
 ## 0.8.0 (devnagui fork)
 
 - Add selectable noise suppression model for Enhanced Noise Cancellation: **RNNoise** (balanced default), **Speex** (lightest on CPU), and **GTCRN** (strongest neural model). Selected via the new "Noise Suppression Model" dropdown; all models run entirely in the browser and work with self-hosted LiveKit servers.

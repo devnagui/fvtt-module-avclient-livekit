@@ -12,7 +12,7 @@
       "ko-fi": "bekit"
     }
   ],
-  "version": "0.8.0",
+  "version": "0.8.1",
   "compatibility": {
     "minimum": "13",
     "verified": "14"
@@ -21,8 +21,8 @@
   "styles": ["css/avclient-livekit.css"],
   "socket": true,
   "url": "https://github.com/devnagui/fvtt-module-avclient-livekit",
-  "manifest": "https://github.com/devnagui/fvtt-module-avclient-livekit/releases/download/v0.8.0/module.json",
-  "download": "https://github.com/devnagui/fvtt-module-avclient-livekit/releases/download/v0.8.0/fvtt-module-avclient-livekit.zip",
+  "manifest": "https://github.com/devnagui/fvtt-module-avclient-livekit/releases/download/v0.8.1/module.json",
+  "download": "https://github.com/devnagui/fvtt-module-avclient-livekit/releases/download/v0.8.1/fvtt-module-avclient-livekit.zip",
   "readme": "https://github.com/devnagui/fvtt-module-avclient-livekit/blob/local-deploy/README.md",
   "changelog": "https://github.com/devnagui/fvtt-module-avclient-livekit/blob/local-deploy/CHANGELOG.md",
   "bugs": "https://github.com/devnagui/fvtt-module-avclient-livekit/issues",
