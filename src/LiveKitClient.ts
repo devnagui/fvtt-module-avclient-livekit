@@ -1476,6 +1476,14 @@ export default class LiveKitClient {
     _cameraviews: foundry.applications.apps.av.CameraViews,
     html: HTMLElement,
   ): void {
+    // Re-attach remote audio after every camera view render. Camera views can
+    // be rebuilt or reparented by Foundry itself or by third-party UI modules
+    // (e.g. Carolingian UI minimizing/moving the dock), which destroys the
+    // dynamically-created <audio> elements. Without this, a participant's audio
+    // goes silent after such a render because the track stays attached to an
+    // orphaned element that is no longer in the document.
+    this.reattachRemoteAudio();
+
     const userId = game.user?.id;
     if (!userId) {
       log.error("No user ID found; cannot render camera views");
@@ -1495,6 +1503,72 @@ export default class LiveKitClient {
     }
     this.addConnectionButtons(element);
     this.addRnnoiseButton(element);
+  }
+
+  /**
+   * Ensure every subscribed remote audio track is attached to a live audio
+   * element in the current DOM. If a track's attached element was destroyed by
+   * a camera-view re-render (or the element still exists but was paused by a DOM
+   * move), this recreates/re-attaches the element or resumes playback. This
+   * keeps participant audio playing when UI modules minimize, move, or rebuild
+   * the camera dock.
+   */
+  reattachRemoteAudio(): void {
+    const localUserId = game.user?.id;
+
+    this.liveKitParticipants.forEach((participant, userId) => {
+      // The local participant has no remote audio to play back
+      if (userId === localUserId) {
+        return;
+      }
+
+      participant.audioTrackPublications.forEach((publication) => {
+        const track = publication.track;
+        if (!(track instanceof RemoteAudioTrack)) {
+          return;
+        }
+
+        // If the track is already attached to a connected element, just make
+        // sure it is still playing (a DOM move can pause media elements).
+        const connectedElements = track.attachedElements.filter(
+          (element) => element.isConnected,
+        );
+        if (connectedElements.length > 0) {
+          for (const element of connectedElements) {
+            if (element instanceof HTMLMediaElement && element.paused) {
+              element.play().catch((error: unknown) => {
+                log.debug("Could not resume audio playback:", error);
+              });
+            }
+          }
+          return;
+        }
+
+        // Otherwise the audio element was destroyed by a re-render; recreate it
+        // inside the current camera view and re-attach the track.
+        const cameraViewElement = ui.webrtc?.element.querySelector(
+          `.camera-view[data-user="${userId}"]`,
+        );
+        if (!(cameraViewElement instanceof HTMLVideoElement)) {
+          return;
+        }
+
+        const audioElement = this.getUserAudioElement(
+          userId,
+          cameraViewElement,
+          publication.source,
+        );
+        if (!audioElement) {
+          return;
+        }
+
+        this.attachAudioTrack(userId, track, audioElement).catch(
+          (error: unknown) => {
+            log.error("Error re-attaching audio track:", error);
+          },
+        );
+      });
+    });
   }
 
   onTrackSubscribed(
