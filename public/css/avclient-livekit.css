@@ -182,6 +182,47 @@
   z-index: 30;
 }
 
+/* Carolingian UI stacks camera controls vertically. On narrow camera tiles,
+ * the additional LiveKit controls exceed the available height and are clipped
+ * by the dock. Use two compact columns only for affected narrow tiles. */
+body.crlngn-ui
+  #av-holder:not(.minimized)
+  .camera-view:not(.popout):has(.bottom .user-controls .livekit-control) {
+  container: livekit-camera-tile / inline-size;
+}
+
+@container livekit-camera-tile (max-width: 200px) {
+  body.crlngn-ui
+    #av-holder:not(.minimized)
+    .camera-view:not(.popout)
+    .bottom
+    .user-controls:has(> .livekit-control) {
+    box-sizing: border-box;
+    flex-flow: row wrap;
+    align-content: flex-end;
+    justify-content: flex-start;
+    width: 54px;
+    height: auto;
+    max-height: 100%;
+  }
+
+  body.crlngn-ui
+    #av-holder:not(.minimized)
+    .camera-view:not(.popout)
+    .bottom
+    .user-controls:has(> .livekit-control)
+    > button.av-control {
+    --button-size: 24px;
+    box-sizing: border-box;
+    flex: 0 0 24px;
+    width: 24px;
+    min-width: 24px;
+    height: 24px;
+    min-height: 24px;
+    padding: 2px;
+  }
+}
+
 /* HACK: Needed due to a bug in FVTT v13 */
 .camera-view .video-container .user-camera {
   height: 100%;

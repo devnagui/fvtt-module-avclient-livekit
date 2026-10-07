@@ -1,5 +1,9 @@
 # LiveKit A/V Client for FoundryVTT: Changelog
 
+## 0.8.3 (devnagui fork)
+
+- Fix LiveKit camera controls being clipped by Carolingian UI on narrow camera tiles by arranging them in two compact columns.
+
 ## 0.8.2 (devnagui fork)
 
 - Add native LiveKit screen sharing from the local camera controls.
