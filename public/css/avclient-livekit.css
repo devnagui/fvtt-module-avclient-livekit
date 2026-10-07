@@ -15,6 +15,10 @@
   color: #50ffff;
 }
 
+.camera-view .av-control.livekit-screen-share-control.active {
+  color: #50ffff;
+}
+
 /* Noise suppression model selection menu */
 .livekit-noise-menu {
   position: fixed;
@@ -183,6 +187,12 @@
   height: 100%;
   width: 100%;
   object-fit: cover;
+}
+
+.camera-view .video-container .user-camera.livekit-screen-share-video {
+  object-fit: contain;
+  transform: none;
+  background: #000;
 }
 
 /* HACK: Needed due to a bug in FVTT v13 - flip the local camera */

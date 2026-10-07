@@ -74,6 +74,8 @@ export default class LiveKitClient {
   initState: InitState = InitState.Uninitialized;
   liveKitParticipants = new Map<string, Participant>();
   liveKitRoom: Room | null = null;
+  restoreCameraAfterScreenShare = false;
+  screenSharePending = false;
   screenTracks: LocalTrack[] = [];
   useExternalAV = false;
   videoTrack: LocalVideoTrack | null = null;
@@ -196,6 +198,59 @@ export default class LiveKitClient {
     } else {
       connectButton.classList.toggle("hidden", false);
     }
+  }
+
+  /**
+   * Add a screen sharing button to the local user's camera controls.
+   * @param {HTMLElement} element   The element to insert the button before
+   */
+  addScreenShareButton(element: HTMLElement): void {
+    if (this.useExternalAV) {
+      return;
+    }
+
+    const screenShareButton = document.createElement("button");
+    screenShareButton.type = "button";
+    screenShareButton.className =
+      "av-control inline-control toggle icon fa-solid fa-fw fa-display livekit-control livekit-screen-share-control";
+    screenShareButton.dataset.tooltip = "";
+
+    screenShareButton.addEventListener("click", () => {
+      this.shareScreen(!this.isScreenSharing).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        log.error("Error sharing screen:", error);
+        ui.notifications?.error(
+          game.i18n?.format(`${LANG_NAME}.screenShareError`, { message }) ??
+            `Unable to share screen: ${message}`,
+        );
+      });
+    });
+
+    element.before(screenShareButton);
+    this.updateScreenShareButtons();
+  }
+
+  get isScreenSharing(): boolean {
+    return this.screenTracks.some((track) => track instanceof LocalVideoTrack);
+  }
+
+  private updateScreenShareButtons(): void {
+    const connected = this.liveKitRoom?.state === ConnectionState.Connected;
+    const labelKey = this.isScreenSharing
+      ? "stopScreenShare"
+      : "startScreenShare";
+    const label = game.i18n?.localize(`${LANG_NAME}.${labelKey}`) ?? labelKey;
+
+    document
+      .querySelectorAll<HTMLElement>(".livekit-screen-share-control")
+      .forEach((button) => {
+        button.classList.toggle("active", this.isScreenSharing);
+        button.classList.toggle(
+          "disabled",
+          this.screenSharePending || !connected,
+        );
+        button.ariaLabel = label;
+      });
   }
 
   /**
@@ -726,6 +781,11 @@ export default class LiveKitClient {
     // Detach from any existing elements
     userVideoTrack.detach();
 
+    videoElement.classList.toggle(
+      "livekit-screen-share-video",
+      userVideoTrack.source === Track.Source.ScreenShare,
+    );
+
     // Attach to the video element
     userVideoTrack.attach(videoElement);
   }
@@ -932,25 +992,64 @@ export default class LiveKitClient {
   getUserVideoTrack(
     userId: string | undefined,
   ): LocalVideoTrack | RemoteVideoTrack | null {
-    let videoTrack: LocalVideoTrack | RemoteVideoTrack | null = null;
-
     // If the user ID is null, return a null track
     if (!userId) {
-      return videoTrack;
+      return null;
     }
 
-    this.liveKitParticipants
-      .get(userId)
-      ?.videoTrackPublications.forEach((publication) => {
-        if (
-          publication.kind === Track.Kind.Video &&
-          (publication.track instanceof LocalVideoTrack ||
-            publication.track instanceof RemoteVideoTrack)
-        ) {
-          videoTrack = publication.track;
-        }
+    let cameraTrack: LocalVideoTrack | RemoteVideoTrack | null = null;
+    const publications = this.liveKitParticipants.get(
+      userId,
+    )?.videoTrackPublications;
+
+    if (!publications) {
+      return null;
+    }
+
+    for (const publication of publications.values()) {
+      const track = publication.track;
+      if (
+        publication.kind !== Track.Kind.Video ||
+        !(
+          track instanceof LocalVideoTrack || track instanceof RemoteVideoTrack
+        )
+      ) {
+        continue;
+      }
+
+      if (publication.source === Track.Source.ScreenShare) {
+        return track;
+      }
+
+      if (publication.source === Track.Source.Camera) {
+        cameraTrack = track;
+      }
+    }
+
+    return cameraTrack;
+  }
+
+  private getLocalVideoElement(): HTMLVideoElement | null {
+    const videoElement = document.querySelector(
+      `.camera-view[data-user="${game.user?.id ?? ""}"] video.user-video`,
+    );
+    return videoElement instanceof HTMLVideoElement ? videoElement : null;
+  }
+
+  private clearScreenTracks(): void {
+    const screenTracks = this.screenTracks;
+    this.screenTracks = [];
+
+    for (const screenTrack of screenTracks) {
+      screenTrack.detach();
+      screenTrack.stop();
+    }
+
+    document
+      .querySelectorAll<HTMLVideoElement>("video.livekit-screen-share-video")
+      .forEach((videoElement) => {
+        videoElement.classList.remove("livekit-screen-share-video");
       });
-    return videoTrack;
   }
 
   /**
@@ -1214,6 +1313,7 @@ export default class LiveKitClient {
         this.trackPublishOptions,
       );
     }
+    this.updateScreenShareButtons();
   }
 
   onConnectionQualityChanged(quality: string, participant: Participant) {
@@ -1249,11 +1349,15 @@ export default class LiveKitClient {
 
     // Clear the participant map
     this.liveKitParticipants.clear();
+    this.clearScreenTracks();
+    this.restoreCameraAfterScreenShare = false;
+    this.screenSharePending = false;
 
     // Set connection buttons state
     this.setConnectionButtons(false);
 
     this.connectionState = ConnectionState.Disconnected;
+    this.updateScreenShareButtons();
 
     // TODO: Add some incremental back-off reconnect logic here
   }
@@ -1503,6 +1607,7 @@ export default class LiveKitClient {
     }
     this.addConnectionButtons(element);
     this.addRnnoiseButton(element);
+    this.addScreenShareButton(element);
   }
 
   /**
@@ -1774,6 +1879,7 @@ export default class LiveKitClient {
       disconnectButton?.classList.toggle("hidden", !connected);
       disconnectButton?.classList.toggle("disabled", false);
     }
+    this.updateScreenShareButtons();
   }
 
   setConnectionQualityIndicator(userId: string, quality?: string): void {
@@ -1900,69 +2006,142 @@ export default class LiveKitClient {
   async shareScreen(enabled: boolean): Promise<void> {
     log.info("shareScreen:", enabled);
 
-    if (enabled) {
-      // Configure audio options
-      const screenAudioOptions: AudioCaptureOptions = {
-        autoGainControl: false,
-        echoCancellation: false,
-        noiseSuppression: false,
-        channelCount: { ideal: 2 },
-      };
+    if (this.screenSharePending || enabled === this.isScreenSharing) {
+      return;
+    }
 
-      // Get screen tracks
-      this.screenTracks = await createLocalScreenTracks({
-        audio: screenAudioOptions,
-      });
+    const room = this.liveKitRoom;
+    if (room?.state !== ConnectionState.Connected) {
+      throw new Error(
+        game.i18n?.localize(`${LANG_NAME}.screenShareNotConnected`) ??
+          "Connect to LiveKit before sharing your screen.",
+      );
+    }
 
-      for (const screenTrack of this.screenTracks) {
-        log.debug("screenTrack enable:", screenTrack);
-        if (screenTrack instanceof LocalVideoTrack) {
-          // Stop our local video track
-          if (this.videoTrack) {
-            await this.liveKitRoom?.localParticipant.unpublishTrack(
-              this.videoTrack,
-            );
+    if (
+      enabled &&
+      !this.avMaster.canUserBroadcastVideo(game.user?.id ?? "")
+    ) {
+      throw new Error(
+        game.i18n?.localize(`${LANG_NAME}.screenShareNotAllowed`) ??
+          "You do not have permission to share video.",
+      );
+    }
+
+    this.screenSharePending = true;
+    this.updateScreenShareButtons();
+
+    try {
+      if (enabled) {
+        const screenTracks = await createLocalScreenTracks({
+          audio: false,
+          video: { displaySurface: "browser" },
+          contentHint: "detail",
+          preferCurrentTab: true,
+          selfBrowserSurface: "include",
+          surfaceSwitching: "include",
+        });
+
+        const screenVideoTrack = screenTracks.find(
+          (track): track is LocalVideoTrack =>
+            track instanceof LocalVideoTrack,
+        );
+        if (!screenVideoTrack) {
+          for (const track of screenTracks) {
+            track.stop();
           }
-
-          // Attach the screen share video to our video element
-          const userVideoElement = document.querySelector(
-            `.camera-view[data-user="${game.user?.id ?? ""}"]`,
+          throw new Error(
+            game.i18n?.localize(`${LANG_NAME}.screenShareNoVideo`) ??
+              "The selected source did not provide video.",
           );
-          if (userVideoElement instanceof HTMLVideoElement) {
-            this.attachVideoTrack(screenTrack, userVideoElement);
-          }
         }
 
-        // Get publishing options
-        const screenTrackPublishOptions = this.trackPublishOptions;
-
-        // Use musicHighQuality audio preset for screen share
-        screenTrackPublishOptions.audioPreset = AudioPresets.musicHighQuality;
-
-        // Publish the track
-        await this.liveKitRoom?.localParticipant.publishTrack(
-          screenTrack,
-          screenTrackPublishOptions,
+        this.screenTracks = screenTracks;
+        screenVideoTrack.mediaStreamTrack.addEventListener(
+          "ended",
+          () => {
+            if (this.screenTracks.includes(screenVideoTrack)) {
+              this.shareScreen(false).catch((error: unknown) => {
+                log.error("Error stopping screen share:", error);
+              });
+            }
+          },
+          { once: true },
         );
-      }
-    } else {
-      for (const screenTrack of this.screenTracks) {
-        log.debug("screenTrack disable:", screenTrack);
-        // Unpublish the screen share track
-        await this.liveKitRoom?.localParticipant.unpublishTrack(screenTrack);
 
-        // Restart our video track
-        if (screenTrack instanceof LocalVideoTrack && this.videoTrack) {
-          await this.liveKitRoom?.localParticipant.publishTrack(
+        if (this.videoTrack) {
+          this.restoreCameraAfterScreenShare = Boolean(
+            this.videoTrack.sid &&
+              room.localParticipant.videoTrackPublications.has(
+                this.videoTrack.sid,
+              ),
+          );
+          if (this.restoreCameraAfterScreenShare) {
+            await room.localParticipant.unpublishTrack(this.videoTrack);
+          }
+          this.videoTrack.detach();
+        }
+
+        for (const screenTrack of screenTracks) {
+          await room.localParticipant.publishTrack(
+            screenTrack,
+            this.trackPublishOptions,
+          );
+        }
+      } else {
+        const screenTracks = this.screenTracks;
+        this.screenTracks = [];
+
+        for (const screenTrack of screenTracks) {
+          log.debug("screenTrack disable:", screenTrack);
+          await room.localParticipant
+            .unpublishTrack(screenTrack)
+            .catch((error: unknown) => {
+              log.debug("Screen track was already unpublished:", error);
+            });
+          screenTrack.detach();
+          screenTrack.stop();
+        }
+
+        if (this.restoreCameraAfterScreenShare && this.videoTrack) {
+          await room.localParticipant.publishTrack(
             this.videoTrack,
             this.trackPublishOptions,
           );
-
-          if (!this.videoTrack.isMuted) {
-            await this.videoTrack.unmute();
+          const localVideoElement = this.getLocalVideoElement();
+          if (localVideoElement) {
+            this.attachVideoTrack(this.videoTrack, localVideoElement);
           }
         }
+        this.restoreCameraAfterScreenShare = false;
       }
+    } catch (error) {
+      const screenTracks = this.screenTracks;
+      this.screenTracks = [];
+      for (const screenTrack of screenTracks) {
+        await room.localParticipant
+          .unpublishTrack(screenTrack)
+          .catch(() => undefined);
+        screenTrack.detach();
+        screenTrack.stop();
+      }
+
+      if (this.restoreCameraAfterScreenShare && this.videoTrack) {
+        await room.localParticipant
+          .publishTrack(this.videoTrack, this.trackPublishOptions)
+          .catch((publishError: unknown) => {
+            log.error("Error restoring camera after screen share:", publishError);
+          });
+        const localVideoElement = this.getLocalVideoElement();
+        if (localVideoElement) {
+          this.attachVideoTrack(this.videoTrack, localVideoElement);
+        }
+      }
+      this.restoreCameraAfterScreenShare = false;
+      throw error;
+    } finally {
+      this.screenSharePending = false;
+      this.updateScreenShareButtons();
     }
   }
 

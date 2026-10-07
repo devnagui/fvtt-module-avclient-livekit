@@ -715,9 +715,10 @@ export default class LiveKitAVClient extends foundry.av.AVClient {
 
     // If this is for our local user, attach our video track using LiveKit
     if (userId === game.user?.id) {
-      // Attach only our video track
+      // Keep the local preview empty while sharing the current tab. Attaching
+      // the screen track here would capture itself and create a mirror tunnel.
       const userVideoTrack = this._liveKitClient.videoTrack;
-      if (userVideoTrack) {
+      if (userVideoTrack && !this._liveKitClient.isScreenSharing) {
         this._liveKitClient.attachVideoTrack(userVideoTrack, videoElement);
       }
 
