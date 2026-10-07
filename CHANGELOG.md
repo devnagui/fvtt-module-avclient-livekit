@@ -1,5 +1,11 @@
 # LiveKit A/V Client for FoundryVTT: Changelog
 
+## 0.8.2 (devnagui fork)
+
+- Add native LiveKit screen sharing from the local camera controls.
+- Prefer sharing the current browser tab and restore the camera automatically when sharing stops.
+- Prioritize screen-share tracks for remote participants and display shared content without cropping or mirroring.
+
 ## 0.8.1 (devnagui fork)
 
 - Fix participant audio going silent after a camera view is minimized, moved, or rebuilt by a UI module (e.g. Carolingian UI). Remote audio is now re-attached on every camera view render, and paused media elements are resumed.
