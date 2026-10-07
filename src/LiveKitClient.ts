@@ -1030,8 +1030,15 @@ export default class LiveKitClient {
   }
 
   private getLocalVideoElement(): HTMLVideoElement | null {
-    const videoElement = document.querySelector(
-      `.camera-view[data-user="${game.user?.id ?? ""}"] video.user-video`,
+    const cameraView = document.querySelector(
+      `.camera-view[data-user="${game.user?.id ?? ""}"]`,
+    );
+    if (cameraView instanceof HTMLVideoElement) {
+      return cameraView;
+    }
+
+    const videoElement = cameraView?.querySelector(
+      "video.user-video, video.user-camera, video",
     );
     return videoElement instanceof HTMLVideoElement ? videoElement : null;
   }
@@ -2115,6 +2122,7 @@ export default class LiveKitClient {
           if (localVideoElement) {
             this.attachVideoTrack(this.videoTrack, localVideoElement);
           }
+          this.avMaster.render();
         }
         this.restoreCameraAfterScreenShare = false;
       }
@@ -2139,6 +2147,7 @@ export default class LiveKitClient {
         if (localVideoElement) {
           this.attachVideoTrack(this.videoTrack, localVideoElement);
         }
+        this.avMaster.render();
       }
       this.restoreCameraAfterScreenShare = false;
       throw error;

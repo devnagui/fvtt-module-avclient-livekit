@@ -1,5 +1,9 @@
 # LiveKit A/V Client for FoundryVTT: Changelog
 
+## 0.8.6 (devnagui fork)
+
+- Fix the local camera preview not returning after screen sharing ends, while the camera was already visible to remote participants.
+
 ## 0.8.5 (devnagui fork)
 
 - Fix the camera track being stopped when screen sharing starts, preventing the camera from being published again after sharing ends.
