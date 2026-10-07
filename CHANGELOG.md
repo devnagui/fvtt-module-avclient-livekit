@@ -1,5 +1,9 @@
 # LiveKit A/V Client for FoundryVTT: Changelog
 
+## 0.8.7 (devnagui fork)
+
+- Fix the horizontal camera controls and volume slider in Carolingian UI popouts appearing on hover but not receiving pointer input because the draggable video layer was above them.
+
 ## 0.8.6 (devnagui fork)
 
 - Fix the local camera preview not returning after screen sharing ends, while the camera was already visible to remote participants.

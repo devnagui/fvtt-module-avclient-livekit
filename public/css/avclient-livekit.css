@@ -182,6 +182,36 @@
   z-index: 30;
 }
 
+/* Carolingian UI makes the popout video container draggable. Keep the control
+ * overlay in a higher stacking layer so the video cannot intercept clicks. */
+body.crlngn-ui .camera-view.popout > .video-container {
+  z-index: 0;
+}
+
+body.crlngn-ui .camera-view.popout > .bottom {
+  z-index: 40;
+  pointer-events: auto;
+}
+
+body.crlngn-ui .camera-view.popout > .bottom .user-controls {
+  z-index: 41;
+  pointer-events: auto;
+}
+
+body.crlngn-ui .camera-view.popout > .bottom .user-controls > button {
+  position: relative;
+  z-index: 42;
+  pointer-events: auto;
+}
+
+body.crlngn-ui .camera-view.popout > .bottom .volume-bar,
+body.crlngn-ui .camera-view.popout > .bottom range-picker,
+body.crlngn-ui .camera-view.popout > .bottom range-picker > input {
+  position: relative;
+  z-index: 42;
+  pointer-events: auto;
+}
+
 /* Carolingian UI stacks camera controls vertically. On narrow camera tiles,
  * the additional LiveKit controls exceed the available height and are clipped
  * by the dock. Use two compact columns only for affected narrow tiles. */
