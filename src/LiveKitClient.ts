@@ -2035,9 +2035,9 @@ export default class LiveKitClient {
       if (enabled) {
         const screenTracks = await createLocalScreenTracks({
           audio: false,
-          video: { displaySurface: "browser" },
+          video: true,
           contentHint: "detail",
-          preferCurrentTab: true,
+          preferCurrentTab: false,
           selfBrowserSurface: "include",
           surfaceSwitching: "include",
         });

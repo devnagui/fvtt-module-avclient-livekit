@@ -1,5 +1,9 @@
 # LiveKit A/V Client for FoundryVTT: Changelog
 
+## 0.8.4 (devnagui fork)
+
+- Show the browser's standard screen-sharing picker instead of prioritizing the current Foundry tab, allowing users to choose another tab, a window, or an entire monitor.
+
 ## 0.8.3 (devnagui fork)
 
 - Fix LiveKit camera controls being clipped by Carolingian UI on narrow camera tiles by arranging them in two compact columns.
