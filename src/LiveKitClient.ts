@@ -2077,7 +2077,10 @@ export default class LiveKitClient {
               ),
           );
           if (this.restoreCameraAfterScreenShare) {
-            await room.localParticipant.unpublishTrack(this.videoTrack);
+            // Preserve the camera's MediaStreamTrack while it is temporarily
+            // unpublished. LiveKit stops local tracks by default, which makes
+            // the same camera track impossible to publish again afterward.
+            await room.localParticipant.unpublishTrack(this.videoTrack, false);
           }
           this.videoTrack.detach();
         }

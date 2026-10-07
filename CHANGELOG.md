@@ -1,5 +1,9 @@
 # LiveKit A/V Client for FoundryVTT: Changelog
 
+## 0.8.5 (devnagui fork)
+
+- Fix the camera track being stopped when screen sharing starts, preventing the camera from being published again after sharing ends.
+
 ## 0.8.4 (devnagui fork)
 
 - Show the browser's standard screen-sharing picker instead of prioritizing the current Foundry tab, allowing users to choose another tab, a window, or an entire monitor.
