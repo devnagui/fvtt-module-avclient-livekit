@@ -853,14 +853,8 @@ export default class LiveKitClient {
             this.videoTrack,
             this.trackPublishOptions,
           );
-          const userVideoElement = document.querySelector(
-            `.camera-view[data-user="${game.user?.id ?? ""}"] video.user-video`,
-          );
-          if (userVideoElement instanceof HTMLVideoElement) {
-            this.attachVideoTrack(this.videoTrack, userVideoElement);
-          }
           game.user?.broadcastActivity({ av: { hidden: false } });
-          this.avMaster.render();
+          this.renderAndReattachLocalVideo();
         }
       }
     } else {
@@ -1041,6 +1035,24 @@ export default class LiveKitClient {
       "video.user-video, video.user-camera, video",
     );
     return videoElement instanceof HTMLVideoElement ? videoElement : null;
+  }
+
+  private reattachLocalVideo(): void {
+    if (this.isScreenSharing || !this.videoTrack) {
+      return;
+    }
+
+    const localVideoElement = this.getLocalVideoElement();
+    if (localVideoElement) {
+      this.attachVideoTrack(this.videoTrack, localVideoElement);
+    }
+  }
+
+  private renderAndReattachLocalVideo(): void {
+    this.avMaster.render();
+    requestAnimationFrame(() => {
+      this.reattachLocalVideo();
+    });
   }
 
   private clearScreenTracks(): void {
@@ -1594,6 +1606,7 @@ export default class LiveKitClient {
     // goes silent after such a render because the track stays attached to an
     // orphaned element that is no longer in the document.
     this.reattachRemoteAudio();
+    this.reattachLocalVideo();
 
     const userId = game.user?.id;
     if (!userId) {
@@ -1745,6 +1758,16 @@ export default class LiveKitClient {
   ): void {
     log.debug("onTrackUnSubscribed:", track, publication, participant);
     track.detach();
+
+    if (track instanceof RemoteVideoTrack) {
+      const fvttUserId = this.getParticipantFVTTUser(participant)?.id;
+      if (fvttUserId) {
+        // A screen-share track and camera track use the same Foundry video
+        // element. Refresh after removing the screen track so setUserVideo()
+        // attaches the participant's still-published camera fallback.
+        debounceRefreshView(fvttUserId);
+      }
+    }
   }
 
   /**
@@ -2077,17 +2100,16 @@ export default class LiveKitClient {
         );
 
         if (this.videoTrack) {
-          this.restoreCameraAfterScreenShare = Boolean(
-            this.videoTrack.sid &&
-              room.localParticipant.videoTrackPublications.has(
-                this.videoTrack.sid,
-              ),
-          );
+          this.restoreCameraAfterScreenShare =
+            !this.videoTrack.isMuted &&
+            [...room.localParticipant.videoTrackPublications.values()].some(
+              (publication) => publication.track === this.videoTrack,
+            );
           if (this.restoreCameraAfterScreenShare) {
-            // Preserve the camera's MediaStreamTrack while it is temporarily
-            // unpublished. LiveKit stops local tracks by default, which makes
-            // the same camera track impossible to publish again afterward.
-            await room.localParticipant.unpublishTrack(this.videoTrack, false);
+            // Keep the camera publication and SID stable while sharing. Rapid
+            // camera unpublish/republish cycles race delayed SFU subscription
+            // and dynacast messages and can leave peers on a black frame.
+            await this.videoTrack.mute();
           }
           this.videoTrack.detach();
         }
@@ -2114,17 +2136,10 @@ export default class LiveKitClient {
         }
 
         if (this.restoreCameraAfterScreenShare && this.videoTrack) {
-          await room.localParticipant.publishTrack(
-            this.videoTrack,
-            this.trackPublishOptions,
-          );
-          const localVideoElement = this.getLocalVideoElement();
-          if (localVideoElement) {
-            this.attachVideoTrack(this.videoTrack, localVideoElement);
-          }
-          this.avMaster.render();
+          await this.videoTrack.unmute();
         }
         this.restoreCameraAfterScreenShare = false;
+        this.renderAndReattachLocalVideo();
       }
     } catch (error) {
       const screenTracks = this.screenTracks;
@@ -2138,18 +2153,14 @@ export default class LiveKitClient {
       }
 
       if (this.restoreCameraAfterScreenShare && this.videoTrack) {
-        await room.localParticipant
-          .publishTrack(this.videoTrack, this.trackPublishOptions)
-          .catch((publishError: unknown) => {
-            log.error("Error restoring camera after screen share:", publishError);
+        await this.videoTrack
+          .unmute()
+          .catch((unmuteError: unknown) => {
+            log.error("Error restoring camera after screen share:", unmuteError);
           });
-        const localVideoElement = this.getLocalVideoElement();
-        if (localVideoElement) {
-          this.attachVideoTrack(this.videoTrack, localVideoElement);
-        }
-        this.avMaster.render();
       }
       this.restoreCameraAfterScreenShare = false;
+      this.renderAndReattachLocalVideo();
       throw error;
     } finally {
       this.screenSharePending = false;

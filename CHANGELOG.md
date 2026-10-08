@@ -1,5 +1,11 @@
 # LiveKit A/V Client for FoundryVTT: Changelog
 
+## 0.8.9 (devnagui fork)
+
+- Keep the camera publication stable while screen sharing by muting it instead of rapidly unpublishing and republishing it, avoiding stale LiveKit subscription races.
+- Restore local camera preview only after Foundry finishes rebuilding its camera views.
+- Refresh remote camera views when a screen-share track is removed so the published camera track replaces it instead of leaving a black frame.
+
 ## 0.8.8 (devnagui fork)
 
 - Move the Carolingian UI camera popout resize handle from the obstructed bottom-right corner to the top-right and flip its corner graphic to match its new position.
