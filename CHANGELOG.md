@@ -1,5 +1,9 @@
 # LiveKit A/V Client for FoundryVTT: Changelog
 
+## 0.8.8 (devnagui fork)
+
+- Move the Carolingian UI camera popout resize handle from the obstructed bottom-right corner to the top-right and flip its corner graphic to match its new position.
+
 ## 0.8.7 (devnagui fork)
 
 - Fix the horizontal camera controls and volume slider in Carolingian UI popouts appearing on hover but not receiving pointer input because the draggable video layer was above them.
