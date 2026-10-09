@@ -1,5 +1,9 @@
 # LiveKit A/V Client for FoundryVTT: Changelog
 
+## 0.8.18 (devnagui fork)
+
+- Update `livekit-client` from 2.22.1 to 2.22.4 for reconnect reliability fixes, including remote ICE candidate handling after reconnect, WebSocket attempt tracking, buffered signal-event flushing, and waiting for the reconnect response before declaring signaling recovered.
+
 ## 0.8.17 (devnagui fork)
 
 - Prevent Escape from closing detached camera popouts by declining only Foundry close requests marked with `closeKey`, while preserving explicit close, docking, Hide User, and cleanup behavior.
