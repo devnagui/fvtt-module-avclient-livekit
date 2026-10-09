@@ -37,6 +37,19 @@ declare module "fvtt-types/configuration" {
 
 const log = new Logger();
 
+export function getLocalAVActivity(client: {
+  audioTrack: { isMuted: boolean } | null;
+  videoTrack: { isMuted: boolean } | null;
+  isScreenSharing: boolean;
+}): { muted: boolean; hidden: boolean } {
+  return {
+    muted: !client.audioTrack || client.audioTrack.isMuted,
+    hidden:
+      !client.isScreenSharing &&
+      (!client.videoTrack || client.videoTrack.isMuted),
+  };
+}
+
 if (import.meta.hot) {
   log.warn("HMR enabled for LiveKitAVClient");
   import.meta.hot.accept((module) => {
@@ -102,7 +115,7 @@ export default class LiveKitAVClient extends foundry.av.AVClient {
 
       // Broadcast our current hidden & muted states
       game.user?.broadcastActivity({
-        av: { muted: !this.isAudioEnabled(), hidden: !this.isVideoEnabled() },
+        av: getLocalAVActivity(this._liveKitClient),
       });
     }
 
@@ -598,10 +611,10 @@ export default class LiveKitAVClient extends foundry.av.AVClient {
    * @returns {boolean}
    */
   isAudioEnabled(): boolean {
-    return Boolean(
-      this._liveKitClient.audioTrack &&
-        !this._liveKitClient.audioTrack.isMuted,
-    );
+    // Foundry uses this as a source/capability check when computing the
+    // persisted self-mute state. Returning false merely because the LiveKit
+    // track is muted creates a feedback loop that can never unmute.
+    return !!this._liveKitClient.audioTrack;
   }
 
   /* -------------------------------------------- */
@@ -611,11 +624,12 @@ export default class LiveKitAVClient extends foundry.av.AVClient {
    * @returns {boolean}
    */
   isVideoEnabled(): boolean {
-    return Boolean(
-      this._liveKitClient.isScreenSharing ||
-        (this._liveKitClient.videoTrack &&
-          !this._liveKitClient.videoTrack.isMuted),
-    );
+    // As with audio, this reports source availability rather than current mute
+    // state. Track mute state is broadcast separately as AV activity.
+    if (this._liveKitClient.videoTrack) {
+      return true;
+    }
+    return this._liveKitClient.isScreenSharing;
   }
 
   /* -------------------------------------------- */
@@ -739,18 +753,15 @@ export default class LiveKitAVClient extends foundry.av.AVClient {
     if (userAudioTrack instanceof RemoteAudioTrack) {
       const audioElement = this._liveKitClient.getUserAudioElement(
         userId,
-        videoElement,
         userAudioTrack.source,
       );
 
       // Add the audio for the user
-      if (audioElement) {
-        await this._liveKitClient.attachAudioTrack(
-          userId,
-          userAudioTrack,
-          audioElement,
-        );
-      }
+      await this._liveKitClient.attachAudioTrack(
+        userId,
+        userAudioTrack,
+        audioElement,
+      );
     }
 
     // Add connection quality indicator
@@ -799,6 +810,14 @@ export default class LiveKitAVClient extends foundry.av.AVClient {
         isAlways && this.master.canUserShareAudio(game.user?.id ?? ""),
       );
       this.master.broadcast(isAlways);
+    }
+
+    const remoteAudioSettingsChange =
+      keys.has("client.audioSink") ||
+      keys.has("client.muteAll") ||
+      [...keys].some((key) => /^client\.users\.[^.]+\.volume$/.test(key));
+    if (remoteAudioSettingsChange) {
+      this._liveKitClient.reattachRemoteAudio();
     }
 
     // Re-render the AV camera view

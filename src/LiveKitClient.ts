@@ -753,13 +753,16 @@ export default class LiveKitClient {
           .includes(userAudioTrack.mediaStreamTrack),
     );
 
-    if (!isCurrentTrack) {
-      // Set audio output device
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-      if (audioElement.sinkId === undefined) {
+    // Keep the selected output device synchronized even when the same track is
+    // already attached and only the client's audio-sink setting changed.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (audioElement.sinkId === undefined) {
+      if (!isCurrentTrack) {
         log.warn("Your web browser does not support output audio sink selection");
-      } else {
-        const requestedSink = this.settings.get("client", "audioSink");
+      }
+    } else {
+      const requestedSink = this.settings.get("client", "audioSink");
+      if (audioElement.sinkId !== requestedSink) {
         // @ts-expect-error - setSinkId is currently an experimental method and not in the defined types
         await audioElement.setSinkId(requestedSink).catch((error: unknown) => {
           let message = error;
@@ -773,7 +776,18 @@ export default class LiveKitClient {
           );
         });
       }
+    }
 
+    // The participant may unsubscribe or disconnect while setSinkId is
+    // pending. Never attach playback to an element already removed by cleanup.
+    if (
+      !audioElement.isConnected ||
+      !audioElement.closest("#livekit-remote-audio-container")
+    ) {
+      return;
+    }
+
+    if (!isCurrentTrack) {
       // Keep exactly one playback element per remote audio track.
       userAudioTrack.detach();
       userAudioTrack.attach(audioElement);
@@ -1245,60 +1259,108 @@ export default class LiveKitClient {
       });
   }
 
+  private getRemoteAudioContainer(): HTMLElement {
+    const existingContainer = document.getElementById(
+      "livekit-remote-audio-container",
+    );
+    if (existingContainer) {
+      return existingContainer;
+    }
+
+    const container = document.createElement("div");
+    container.id = "livekit-remote-audio-container";
+    container.hidden = true;
+    document.body.append(container);
+    return container;
+  }
+
   /**
-   * Obtain a reference to the video.user-audio which plays the audio channel for a requested
-   * Foundry User.
-   * If the element doesn't exist, but a video element does, it will create it.
-   * @param {string} userId                   The ID of the User entity
-   * @param {HTMLVideoElement} videoElement   The HTMLVideoElement of the user
-   * @return {HTMLAudioElement|null}
+   * Get the persistent playback element for a remote user's audio source.
+   * Audio must not be owned by a camera view: Foundry removes that DOM when a
+   * receiver hides a camera, but hiding video must not mute the user's audio.
    */
   getUserAudioElement(
     userId: string,
-    videoElement: HTMLVideoElement | null = null,
     audioType: Track.Source,
-  ): HTMLAudioElement | null {
-    // Audio elements are siblings of Foundry's video element in v14, not its
-    // descendants. Reuse the sibling so repeated renders cannot duplicate
-    // playback for the same participant and source.
-    let audioElement = videoElement?.parentElement?.querySelector(
-      `audio.user-${audioType}-audio[data-user-id="${userId}"]`,
+  ): HTMLAudioElement {
+    const container = this.getRemoteAudioContainer();
+    const audioElement = [
+      ...container.querySelectorAll<HTMLAudioElement>(
+        "audio[data-livekit-remote-audio]",
+      ),
+    ].find(
+      (element) =>
+        element.dataset.userId === userId &&
+        element.dataset.trackSource === audioType,
     );
-    const adjacentElement = videoElement?.nextElementSibling;
-    if (
-      !audioElement &&
-      adjacentElement instanceof HTMLAudioElement &&
-      adjacentElement.classList.contains(`user-${audioType}-audio`) &&
-      !adjacentElement.dataset.userId
-    ) {
-      audioElement = adjacentElement;
-    }
-
-    // If one doesn't exist, create it
-    if (!audioElement && videoElement) {
-      audioElement = document.createElement("audio");
-      audioElement.className = `user-${audioType}-audio`;
-      if (audioElement instanceof HTMLAudioElement) {
-        audioElement.autoplay = true;
-        audioElement.dataset.userId = userId;
-      }
-      videoElement.after(audioElement);
-
-      // Bind volume control for microphone audio
-      const volumeSlider =
-        videoElement.parentElement?.parentElement?.querySelector(
-          ".webrtc-volume-slider",
-        );
-      volumeSlider?.addEventListener("change", this.onVolumeChange.bind(this));
-    }
-
-    if (audioElement instanceof HTMLAudioElement) {
-      audioElement.dataset.userId = userId;
+    if (audioElement) {
       return audioElement;
     }
 
-    // The audio element was not found or created
-    return null;
+    const newAudioElement = document.createElement("audio");
+    newAudioElement.autoplay = true;
+    newAudioElement.dataset.livekitRemoteAudio = "true";
+    newAudioElement.dataset.userId = userId;
+    newAudioElement.dataset.trackSource = audioType;
+    newAudioElement.className = `user-${audioType}-audio`;
+    container.append(newAudioElement);
+
+    // Remove camera-adjacent elements from older versions. Their LiveKit track
+    // attachment is reconciled immediately after this method returns.
+    document
+      .querySelectorAll<HTMLAudioElement>(
+        `audio.user-${audioType}-audio[data-user-id="${userId}"]`,
+      )
+      .forEach((element) => {
+        if (element !== newAudioElement) {
+          element.pause();
+          element.remove();
+        }
+      });
+
+    return newAudioElement;
+  }
+
+  private clearRemoteAudioElements(): void {
+    const container = document.getElementById(
+      "livekit-remote-audio-container",
+    );
+    if (!container) {
+      return;
+    }
+
+    container
+      .querySelectorAll<HTMLAudioElement>("audio[data-livekit-remote-audio]")
+      .forEach((audioElement) => {
+        audioElement.pause();
+        audioElement.srcObject = null;
+      });
+    container.remove();
+  }
+
+  private removeRemoteAudioElement(
+    userId: string,
+    audioType: Track.Source,
+  ): void {
+    const container = document.getElementById(
+      "livekit-remote-audio-container",
+    );
+    if (!container) {
+      return;
+    }
+
+    container
+      .querySelectorAll<HTMLAudioElement>("audio[data-livekit-remote-audio]")
+      .forEach((audioElement) => {
+        if (
+          audioElement.dataset.userId === userId &&
+          audioElement.dataset.trackSource === audioType
+        ) {
+          audioElement.pause();
+          audioElement.srcObject = null;
+          audioElement.remove();
+        }
+      });
   }
 
   async initializeLocalTracks(): Promise<void> {
@@ -1567,6 +1629,7 @@ export default class LiveKitClient {
     // Clear the participant map
     this.liveKitParticipants.clear();
     this.clearScreenTracks();
+    this.clearRemoteAudioElements();
     if (
       this.restoreCameraAfterScreenShare &&
       this.videoTrack?.mediaStreamTrack.readyState === "live" &&
@@ -1672,6 +1735,9 @@ export default class LiveKitClient {
     // newer participant that has already reconnected for the same Foundry user.
     if (this.liveKitParticipants.get(fvttUserId) === participant) {
       this.liveKitParticipants.delete(fvttUserId);
+      requestAnimationFrame(() => {
+        this.reattachRemoteAudio();
+      });
     }
 
     // Clear breakout room cache if user is leaving a breakout room
@@ -1834,7 +1900,7 @@ export default class LiveKitClient {
     // dynamically-created <audio> elements. Without this, a participant's audio
     // goes silent after such a render because the track stays attached to an
     // orphaned element that is no longer in the document.
-    this.reattachRemoteAudio(html);
+    this.reattachRemoteAudio();
     this.reattachRemoteVideo(html);
     this.reattachLocalVideo();
     requestAnimationFrame(() => {
@@ -1842,6 +1908,19 @@ export default class LiveKitClient {
       this.reattachRemoteVideo();
       this.reattachLocalVideo();
     });
+
+    html
+      .querySelectorAll<HTMLElement>(".webrtc-volume-slider")
+      .forEach((volumeSlider) => {
+        if (volumeSlider.dataset.livekitVolumeBound) {
+          return;
+        }
+        volumeSlider.dataset.livekitVolumeBound = "true";
+        volumeSlider.addEventListener(
+          "change",
+          this.onVolumeChange.bind(this),
+        );
+      });
 
     const userId = game.user?.id;
     if (!userId) {
@@ -1873,8 +1952,9 @@ export default class LiveKitClient {
    * keeps participant audio playing when UI modules minimize, move, or rebuild
    * the camera dock.
    */
-  reattachRemoteAudio(root: ParentNode = document): void {
+  reattachRemoteAudio(): void {
     const localUserId = game.user?.id;
+    const activeAudioElements = new Set<HTMLAudioElement>();
 
     this.liveKitParticipants.forEach((participant, userId) => {
       // The local participant has no remote audio to play back
@@ -1888,19 +1968,11 @@ export default class LiveKitClient {
           return;
         }
 
-        const cameraViewElement = this.getUserVideoElements(userId, root).at(0);
-        if (!cameraViewElement) {
-          return;
-        }
-
         const audioElement = this.getUserAudioElement(
           userId,
-          cameraViewElement,
           publication.source,
         );
-        if (!audioElement) {
-          return;
-        }
+        activeAudioElements.add(audioElement);
 
         this.attachAudioTrack(userId, track, audioElement).catch(
           (error: unknown) => {
@@ -1909,6 +1981,19 @@ export default class LiveKitClient {
         );
       });
     });
+
+    const container = document.getElementById(
+      "livekit-remote-audio-container",
+    );
+    container
+      ?.querySelectorAll<HTMLAudioElement>("audio[data-livekit-remote-audio]")
+      .forEach((audioElement) => {
+        if (!activeAudioElements.has(audioElement)) {
+          audioElement.pause();
+          audioElement.srcObject = null;
+          audioElement.remove();
+        }
+      });
   }
 
   onTrackSubscribed(
@@ -1928,6 +2013,19 @@ export default class LiveKitClient {
       return;
     }
 
+    if (track instanceof RemoteAudioTrack) {
+      const audioElement = this.getUserAudioElement(
+        fvttUserId,
+        publication.source,
+      );
+      this.attachAudioTrack(fvttUserId, track, audioElement).catch(
+        (error: unknown) => {
+          log.error("Error attaching audio track:", error);
+        },
+      );
+      return;
+    }
+
     const videoElement = this.getUserVideoElements(fvttUserId).at(0);
 
     if (!videoElement) {
@@ -1941,21 +2039,7 @@ export default class LiveKitClient {
       return;
     }
 
-    if (track instanceof RemoteAudioTrack) {
-      // Get the audio element for the user
-      const audioElement = this.getUserAudioElement(
-        fvttUserId,
-        videoElement,
-        publication.source,
-      );
-      if (audioElement) {
-        this.attachAudioTrack(fvttUserId, track, audioElement).catch(
-          (error: unknown) => {
-            log.error("Error attaching audio track:", error);
-          },
-        );
-      }
-    } else if (track instanceof RemoteVideoTrack) {
+    if (track instanceof RemoteVideoTrack) {
       // Publication events can arrive camera-last or screen-last. Always attach
       // the source selected by policy (live screen share first, then camera),
       // not simply whichever subscription event arrived most recently.
@@ -1974,6 +2058,17 @@ export default class LiveKitClient {
   ): void {
     log.debug("onTrackUnSubscribed:", track, publication, participant);
     track.detach();
+
+    if (track instanceof RemoteAudioTrack) {
+      const fvttUserId = this.getParticipantFVTTUser(participant)?.id;
+      if (
+        fvttUserId &&
+        this.liveKitParticipants.get(fvttUserId) === participant
+      ) {
+        this.removeRemoteAudioElement(fvttUserId, publication.source);
+      }
+      return;
+    }
 
     if (track instanceof RemoteVideoTrack) {
       const fvttUserId = this.getParticipantFVTTUser(participant)?.id;
@@ -2006,16 +2101,19 @@ export default class LiveKitClient {
       log.warn("Volume change event did not originate from a camera view box");
       return;
     }
-    const audioElements: HTMLCollection = box.getElementsByTagName("audio");
-    for (const audioElement of audioElements) {
-      if (audioElement instanceof HTMLAudioElement) {
-        audioElement.volume = volume;
-      }
-    }
+    const userId = box.dataset.user;
+    document
+      .getElementById("livekit-remote-audio-container")
+      ?.querySelectorAll<HTMLAudioElement>("audio[data-livekit-remote-audio]")
+      .forEach((audioElement) => {
+        if (audioElement.dataset.userId === userId) {
+          audioElement.volume = volume;
+        }
+      });
 
     // HACK: Needed to fix a bug in FVTT v13
-    if (box.dataset.user) {
-      this.settings.set("client", `users.${box.dataset.user}.volume`, volume);
+    if (userId) {
+      this.settings.set("client", `users.${userId}.volume`, volume);
     }
   }
 

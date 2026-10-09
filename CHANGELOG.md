@@ -1,5 +1,12 @@
 # LiveKit A/V Client for FoundryVTT: Changelog
 
+## 0.8.12 (devnagui fork)
+
+- Fix the v0.8.11 microphone initialization feedback loop that could lock a user in the muted state.
+- Keep remote audio playing when its receiver hides, detaches, or removes that user's camera view by moving playback into a persistent LiveKit-owned container.
+- Preserve per-user volume, output sink, mute-all behavior, reconnect cleanup, and stale-participant protections for camera-independent audio.
+- Add automated regression tests for microphone capability semantics, Always/PTT toggling, hidden-camera audio, and participant-specific playback elements.
+
 ## 0.8.11 (devnagui fork)
 
 - Fix microphone controls becoming impossible to re-enable after a persisted mute state is loaded on another device.

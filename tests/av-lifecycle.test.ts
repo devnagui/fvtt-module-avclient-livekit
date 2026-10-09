@@ -1,0 +1,118 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Track } from "livekit-client";
+import LiveKitAVClient, { getLocalAVActivity } from "../src/LiveKitAVClient";
+import LiveKitClient from "../src/LiveKitClient";
+
+describe("Foundry AV state semantics", () => {
+  it("broadcasts actual initial mute state separately from source availability", () => {
+    expect(
+      getLocalAVActivity({
+        audioTrack: { isMuted: true },
+        videoTrack: { isMuted: true },
+        isScreenSharing: false,
+      }),
+    ).toEqual({ muted: true, hidden: true });
+
+    expect(
+      getLocalAVActivity({
+        audioTrack: { isMuted: false },
+        videoTrack: { isMuted: true },
+        isScreenSharing: true,
+      }),
+    ).toEqual({ muted: false, hidden: false });
+  });
+
+  it("reports a muted microphone track as an available audio source", () => {
+    const client = Object.create(LiveKitAVClient.prototype) as LiveKitAVClient;
+    Object.assign(client, {
+      _liveKitClient: {
+        audioTrack: { isMuted: true },
+      },
+    });
+
+    expect(client.isAudioEnabled()).toBe(true);
+  });
+
+  it("allows always-on audio to recover when audioBroadcastEnabled is false", () => {
+    const client = Object.create(LiveKitAVClient.prototype) as LiveKitAVClient;
+    const toggleBroadcast = vi.fn();
+    Object.assign(client, {
+      _liveKitClient: {
+        useExternalAV: false,
+        audioBroadcastEnabled: false,
+      },
+      isVoicePTT: false,
+      toggleBroadcast,
+    });
+
+    client.toggleAudio(true);
+
+    expect(toggleBroadcast).toHaveBeenCalledOnce();
+    expect(toggleBroadcast).toHaveBeenCalledWith(true);
+  });
+
+  it("does not open the microphone merely by unmuting in push-to-talk mode", () => {
+    const client = Object.create(LiveKitAVClient.prototype) as LiveKitAVClient;
+    const toggleBroadcast = vi.fn();
+    Object.assign(client, {
+      _liveKitClient: {
+        useExternalAV: false,
+        audioBroadcastEnabled: false,
+      },
+      isVoicePTT: true,
+      toggleBroadcast,
+    });
+
+    client.toggleAudio(true);
+
+    expect(toggleBroadcast).not.toHaveBeenCalled();
+  });
+});
+
+describe("remote audio lifecycle", () => {
+  let client: LiveKitClient;
+
+  beforeEach(() => {
+    document.body.replaceChildren();
+    client = Object.create(LiveKitClient.prototype) as LiveKitClient;
+  });
+
+  it("keeps remote audio connected when its camera view is removed", () => {
+    const cameraView = document.createElement("div");
+    cameraView.className = "camera-view";
+    cameraView.dataset.user = "user-a";
+    document.body.append(cameraView);
+
+    const audioElement = client.getUserAudioElement(
+      "user-a",
+      Track.Source.Microphone,
+    );
+    cameraView.remove();
+
+    expect(audioElement.isConnected).toBe(true);
+    expect(audioElement.closest("#livekit-remote-audio-container")).not.toBeNull();
+  });
+
+  it("reuses one playback element per participant and source", () => {
+    const first = client.getUserAudioElement(
+      "user-a",
+      Track.Source.Microphone,
+    );
+    const repeated = client.getUserAudioElement(
+      "user-a",
+      Track.Source.Microphone,
+    );
+    const otherUser = client.getUserAudioElement(
+      "user-b",
+      Track.Source.Microphone,
+    );
+
+    expect(repeated).toBe(first);
+    expect(otherUser).not.toBe(first);
+    expect(
+      document.querySelectorAll(
+        "#livekit-remote-audio-container audio[data-livekit-remote-audio]",
+      ),
+    ).toHaveLength(2);
+  });
+});
