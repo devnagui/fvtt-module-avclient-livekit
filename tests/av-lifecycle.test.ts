@@ -147,6 +147,42 @@ describe("remote audio lifecycle", () => {
 });
 
 describe("receiver-hidden video lifecycle", () => {
+  it("returns a blocked detached camera to the dock and closes its popout", async () => {
+    const close = vi.fn(() => Promise.resolve());
+    const render = vi.fn(() => Promise.resolve());
+    const set = vi.fn();
+    foundry.applications.instances.set("camera-view-user-a", {
+      close,
+    } as never);
+
+    const client = Object.create(LiveKitAVClient.prototype) as LiveKitAVClient;
+    Object.assign(client, {
+      _liveKitClient: {
+        isUserVideoBlocked: () => true,
+        reattachRemoteAudio: vi.fn(),
+      },
+      settings: {
+        client: { voice: { mode: "always" } },
+        set,
+      },
+      master: { render },
+    });
+
+    client.onSettingsChanged({
+      client: { users: { "user-a": { blocked: true } } },
+    });
+    await vi.waitFor(() => {
+      expect(close).toHaveBeenCalledOnce();
+    });
+
+    expect(set).toHaveBeenCalledWith(
+      "client",
+      "users.user-a.popout",
+      false,
+    );
+    expect(render).toHaveBeenCalled();
+  });
+
   it("does not attach video for a user blocked by this receiver", () => {
     const client = Object.create(LiveKitClient.prototype) as LiveKitClient;
     const getUserVideoTrack = vi.fn();

@@ -835,20 +835,25 @@ export default class LiveKitAVClient extends foundry.av.AVClient {
     }
 
     // Foundry's Hide User action updates the main CameraViews application but
-    // a detached camera is a separate CameraPopout application. Re-render that
-    // popout explicitly so its video and Hide/Show control reflect `blocked`.
+    // a detached camera is a separate CameraPopout. Return it to dock state,
+    // close the popout, and let the blocked dock render omit it completely.
+    // Remote audio remains in LiveKit's independent playback container.
     for (const userId of getBlockedUserIds(keys)) {
       const popout = foundry.applications.instances.get(
         `camera-view-${userId}`,
       );
-      popout
-        ?.render({ force: true })
-        .then(() => {
-          this._liveKitClient.reattachRemoteVideoForUser(userId);
-        })
-        .catch((error: unknown) => {
-          log.error("Error refreshing hidden camera popout:", error);
-        });
+      if (this._liveKitClient.isUserVideoBlocked(userId)) {
+        this.settings.set("client", `users.${userId}.popout`, false);
+        Promise.resolve(popout?.close())
+          .then(() => {
+            this.master.render();
+          })
+          .catch((error: unknown) => {
+            log.error("Error closing hidden camera popout:", error);
+          });
+      } else {
+        this.master.render();
+      }
     }
 
     // Re-render the AV camera view

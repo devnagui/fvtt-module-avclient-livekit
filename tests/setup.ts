@@ -22,6 +22,25 @@ class MockAudioWorkletNode {
   }
 }
 
+function flattenObject(
+  value: Record<string, unknown>,
+  prefix = "",
+): Record<string, unknown> {
+  const flattened: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (child && typeof child === "object" && !Array.isArray(child)) {
+      Object.assign(
+        flattened,
+        flattenObject(child as Record<string, unknown>, path),
+      );
+    } else {
+      flattened[path] = child;
+    }
+  }
+  return flattened;
+}
+
 Object.assign(globalThis, {
   AudioWorkletNode: MockAudioWorkletNode,
   foundry: {
@@ -29,6 +48,7 @@ Object.assign(globalThis, {
       AVClient: MockAVClient,
     },
     applications: {
+      instances: new Map(),
       settings: {
         menus: {
           AVConfig: MockAVConfig,
@@ -37,6 +57,7 @@ Object.assign(globalThis, {
     },
     utils: {
       debounce: <T extends (...args: never[]) => unknown>(fn: T): T => fn,
+      flattenObject,
     },
   },
   Hooks: {

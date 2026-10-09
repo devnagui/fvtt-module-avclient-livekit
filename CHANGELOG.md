@@ -1,5 +1,10 @@
 # LiveKit A/V Client for FoundryVTT: Changelog
 
+## 0.8.15 (devnagui fork)
+
+- When Hide User is used from a detached camera, clear its popout state, close the detached window, and let the blocked dock render omit it completely while remote audio continues.
+- Add regression coverage for dock-before-close behavior on blocked camera popouts.
+
 ## 0.8.14 (devnagui fork)
 
 - Replace dynamic per-user CameraViews partial renders with a full render compatible with Foundry v13 and v14, eliminating unsupported-template-part warnings during hide/show transitions.
