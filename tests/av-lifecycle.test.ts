@@ -6,12 +6,59 @@ import LiveKitAVClient, {
 } from "../src/LiveKitAVClient";
 import LiveKitClient from "../src/LiveKitClient";
 import { debounceRefreshView } from "../src/utils/helpers";
+import { protectCameraPopoutFromEscape } from "../src/utils/cameraPopoutGuard";
+
+describe("detached camera Escape behavior", () => {
+  it("ignores Escape close while preserving explicit close options", () => {
+    const originalClose = vi.fn();
+    const cameraPopout = {
+      id: "camera-view-user-a",
+      close: originalClose,
+    };
+
+    expect(protectCameraPopoutFromEscape(cameraPopout)).toBe(true);
+    cameraPopout.close({ closeKey: true });
+    cameraPopout.close({ animate: false }, "cleanup-context");
+
+    expect(originalClose).toHaveBeenCalledOnce();
+    expect(originalClose).toHaveBeenCalledWith(
+      { animate: false },
+      "cleanup-context",
+    );
+  });
+
+  it("does not wrap non-camera applications", () => {
+    const originalClose = vi.fn();
+    const application = { id: "actor-sheet-user-a", close: originalClose };
+
+    expect(protectCameraPopoutFromEscape(application)).toBe(false);
+    application.close({ closeKey: true });
+
+    expect(originalClose).toHaveBeenCalledWith({ closeKey: true });
+  });
+
+  it("does not stack wrappers across repeated renders", () => {
+    const originalClose = vi.fn();
+    const cameraPopout = {
+      id: "camera-view-user-a",
+      close: originalClose,
+    };
+
+    expect(protectCameraPopoutFromEscape(cameraPopout)).toBe(true);
+    expect(protectCameraPopoutFromEscape(cameraPopout)).toBe(false);
+    cameraPopout.close();
+
+    expect(originalClose).toHaveBeenCalledOnce();
+  });
+});
 
 describe("cross-version camera rendering", () => {
   it("uses a full CameraViews render instead of a dynamic user part", async () => {
     vi.useFakeTimers();
     const render = vi.fn(() => Promise.resolve());
-    Object.assign(globalThis, { ui: { webrtc: { render } } });
+    Object.assign(globalThis, {
+      ui: { ...ui, webrtc: { render } },
+    });
 
     debounceRefreshView("user-a");
     await vi.runAllTimersAsync();
@@ -152,6 +199,7 @@ describe("receiver-hidden video lifecycle", () => {
     const render = vi.fn(() => Promise.resolve());
     const set = vi.fn();
     foundry.applications.instances.set("camera-view-user-a", {
+      id: "camera-view-user-a",
       close,
     } as never);
 

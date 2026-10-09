@@ -1,5 +1,11 @@
 # LiveKit A/V Client for FoundryVTT: Changelog
 
+## 0.8.17 (devnagui fork)
+
+- Prevent Escape from closing detached camera popouts by declining only Foundry close requests marked with `closeKey`, while preserving explicit close, docking, Hide User, and cleanup behavior.
+- Protect lazily created and existing camera popouts through Foundry v13 and v14 application registries without intercepting global keyboard events.
+- Add regression coverage for Escape closure, explicit closure, non-camera applications, and idempotent wrapping.
+
 ## 0.8.16 (devnagui fork)
 
 - Render the blocked dock state immediately after clearing detached state, then close the popout independently so delayed or failed popout cleanup cannot prevent Hide User from taking effect.

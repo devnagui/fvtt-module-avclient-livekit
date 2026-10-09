@@ -11,6 +11,7 @@ import { LANG_NAME, MODULE_NAME } from "./utils/constants";
 
 import LiveKitClient, { InitState } from "./LiveKitClient";
 import { callWhenReady, delayReload } from "./utils/helpers";
+import { getRegisteredCameraPopout } from "./utils/cameraPopoutGuard";
 import { LiveKitConnectionSettings } from "../types/avclient-livekit";
 import LiveKitAVConfig from "./LiveKitAVConfig";
 import { Logger } from "./utils/logger";
@@ -839,9 +840,7 @@ export default class LiveKitAVClient extends foundry.av.AVClient {
     // close the popout, and let the blocked dock render omit it completely.
     // Remote audio remains in LiveKit's independent playback container.
     for (const userId of getBlockedUserIds(keys)) {
-      const popout = foundry.applications.instances.get(
-        `camera-view-${userId}`,
-      );
+      const popout = getRegisteredCameraPopout(userId);
       if (this._liveKitClient.isUserVideoBlocked(userId)) {
         this.settings.set("client", `users.${userId}.popout`, false);
         this.master.render();

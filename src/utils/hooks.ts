@@ -1,5 +1,9 @@
 import type { SocketMessage } from "../../types/avclient-livekit";
 import LiveKitAVConfig from "../LiveKitAVConfig";
+import {
+  protectCameraPopoutFromEscape,
+  protectRegisteredCameraPopoutsFromEscape,
+} from "./cameraPopoutGuard";
 import { MODULE_NAME } from "./constants";
 import registerModuleSettings from "./registerModuleSettings";
 
@@ -21,12 +25,19 @@ Hooks.on("init", () => {
 
   // Add renderCameraViews hook after init
   Hooks.on("renderCameraViews", (cameraViews, cameraViewsElement) => {
+    protectRegisteredCameraPopoutsFromEscape();
     if (game.webrtc?.client._liveKitClient) {
       game.webrtc.client._liveKitClient.onRenderCameraViews(
         cameraViews,
         cameraViewsElement,
       );
     }
+  });
+
+  // Camera popouts are created lazily. Guard each new instance after its first
+  // render while leaving every other Foundry application untouched.
+  Hooks.on("renderCameraPopout", (cameraPopout) => {
+    protectCameraPopoutFromEscape(cameraPopout);
   });
 });
 

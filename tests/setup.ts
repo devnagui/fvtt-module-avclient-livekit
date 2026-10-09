@@ -67,4 +67,7 @@ Object.assign(globalThis, {
   game: {
     user: { id: "self" },
   },
+  ui: {
+    windows: {},
+  },
 });
