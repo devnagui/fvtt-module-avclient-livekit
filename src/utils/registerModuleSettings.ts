@@ -64,8 +64,8 @@ export default function registerModuleSettings(): void {
     hint: "LIVEKITAVCLIENT.enhancedNoiseCancellationHint",
     scope: "client",
     config: false,
-    default: true,
-    type: new foundry.data.fields.BooleanField({ initial: true }),
+    default: false,
+    type: new foundry.data.fields.BooleanField({ initial: false }),
     onChange: () => {
       game.webrtc?.client._liveKitClient.scheduleAudioSourceChange();
     },

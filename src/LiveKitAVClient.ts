@@ -598,7 +598,10 @@ export default class LiveKitAVClient extends foundry.av.AVClient {
    * @returns {boolean}
    */
   isAudioEnabled(): boolean {
-    return !!this._liveKitClient.audioTrack;
+    return Boolean(
+      this._liveKitClient.audioTrack &&
+        !this._liveKitClient.audioTrack.isMuted,
+    );
   }
 
   /* -------------------------------------------- */
@@ -608,7 +611,11 @@ export default class LiveKitAVClient extends foundry.av.AVClient {
    * @returns {boolean}
    */
   isVideoEnabled(): boolean {
-    return !!this._liveKitClient.videoTrack;
+    return Boolean(
+      this._liveKitClient.isScreenSharing ||
+        (this._liveKitClient.videoTrack &&
+          !this._liveKitClient.videoTrack.isMuted),
+    );
   }
 
   /* -------------------------------------------- */
@@ -628,10 +635,15 @@ export default class LiveKitAVClient extends foundry.av.AVClient {
       return;
     }
 
-    // If "always on" broadcasting is not enabled, don't proceed
-    if (!this._liveKitClient.audioBroadcastEnabled || this.isVoicePTT) return;
+    // In push-to-talk mode an explicit mute must stop any active broadcast,
+    // while unmuting only permits the next push-to-talk transmission.
+    if (this.isVoicePTT) {
+      if (!enable) this.toggleBroadcast(false);
+      return;
+    }
 
-    // Enable active broadcasting
+    // Do not gate this on audioBroadcastEnabled. That flag becomes false when
+    // muted, so using it as a prerequisite makes unmuting impossible.
     this.toggleBroadcast(enable);
   }
 
@@ -652,7 +664,11 @@ export default class LiveKitAVClient extends foundry.av.AVClient {
     }
 
     this._liveKitClient.audioBroadcastEnabled = broadcast;
-    this._liveKitClient.setAudioEnabledState(broadcast);
+    this._liveKitClient
+      .setAudioEnabledState(broadcast)
+      .catch((error: unknown) => {
+        log.error("Error changing audio enabled state:", error);
+      });
   }
 
   /* -------------------------------------------- */
@@ -667,11 +683,6 @@ export default class LiveKitAVClient extends foundry.av.AVClient {
   toggleVideo(enable: boolean): void {
     // If useExternalAV is enabled, return
     if (this._liveKitClient.useExternalAV) {
-      return;
-    }
-
-    if (!this._liveKitClient.videoTrack) {
-      log.debug("toggleVideo called but no video track available");
       return;
     }
 

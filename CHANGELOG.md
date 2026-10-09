@@ -1,5 +1,13 @@
 # LiveKit A/V Client for FoundryVTT: Changelog
 
+## 0.8.11 (devnagui fork)
+
+- Fix microphone controls becoming impossible to re-enable after a persisted mute state is loaded on another device.
+- Recreate and publish missing or ended microphone and camera tracks when their controls are enabled.
+- Report microphone and camera availability from their actual mute state instead of merely checking whether a track object exists.
+- Preserve push-to-talk and source-change state while accurately broadcasting mute and hidden activity.
+- Disable enhanced model-based noise cancellation by default for new/default client settings and when resetting noise options.
+
 ## 0.8.10 (devnagui fork)
 
 - Reconcile remote video tracks after Foundry or Carolingian UI rebuilds camera views, preventing subscribed cameras from remaining black in one client.

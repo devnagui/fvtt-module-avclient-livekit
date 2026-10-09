@@ -676,7 +676,7 @@ export default class LiveKitClient {
    * change.
    */
   private async resetNoiseSettings(): Promise<void> {
-    await game.settings?.set(MODULE_NAME, "enhancedNoiseCancellation", true);
+    await game.settings?.set(MODULE_NAME, "enhancedNoiseCancellation", false);
     await game.settings?.set(MODULE_NAME, "noiseSuppressionModel", "gtcrn");
     await game.settings?.set(MODULE_NAME, "audioAutoGainControl", true);
     await game.settings?.set(MODULE_NAME, "audioEchoCancellation", true);
@@ -844,14 +844,21 @@ export default class LiveKitClient {
         game.user?.broadcastActivity({ av: { muted: true } });
       } else {
         await this.initializeAudioTrack();
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-        if (this.audioTrack) {
+        const audioTrack = this.audioTrack as LocalAudioTrack | null;
+        if (audioTrack) {
           await this.liveKitRoom?.localParticipant.publishTrack(
-            this.audioTrack,
+            audioTrack,
             this.trackPublishOptions,
           );
-          game.user?.broadcastActivity({ av: { muted: false } });
+          if (this.audioBroadcastEnabled && audioTrack.isMuted) {
+            await audioTrack.unmute();
+          }
+          game.user?.broadcastActivity({
+            av: { muted: audioTrack.isMuted },
+          });
           this.avMaster.render();
+        } else {
+          game.user?.broadcastActivity({ av: { muted: true } });
         }
       }
     } else {
@@ -899,8 +906,12 @@ export default class LiveKitClient {
               await videoTrack.mute();
             }
           }
-          game.user?.broadcastActivity({ av: { hidden: false } });
+          game.user?.broadcastActivity({
+            av: { hidden: isScreenSharing ? false : videoTrack.isMuted },
+          });
           this.renderAndReattachLocalVideo();
+        } else {
+          game.user?.broadcastActivity({ av: { hidden: !isScreenSharing } });
         }
       }
     } else {
@@ -920,10 +931,35 @@ export default class LiveKitClient {
 
   setVideoEnabledState(enable: boolean): Promise<void> {
     return this.enqueueVideoOperation(async () => {
-      const videoTrack = this.videoTrack;
+      let videoTrack = this.videoTrack;
+      if (enable && (!videoTrack || this.isTrackEnded(videoTrack))) {
+        if (videoTrack) {
+          await this.liveKitRoom?.localParticipant
+            .unpublishTrack(videoTrack)
+            .catch(() => undefined);
+          videoTrack.detach();
+          videoTrack.stop();
+          this.videoTrack = null;
+        }
+
+        await this.initializeVideoTrack();
+        videoTrack = this.videoTrack;
+      }
+
       if (!videoTrack) {
         log.debug("setVideoEnabledState called but no video track is available");
         return;
+      }
+
+      const room = this.liveKitRoom;
+      const isPublished = [
+        ...(room?.localParticipant.videoTrackPublications.values() ?? []),
+      ].some((publication) => publication.track === videoTrack);
+      if (enable && room?.state === ConnectionState.Connected && !isPublished) {
+        await room.localParticipant.publishTrack(
+          videoTrack,
+          this.trackPublishOptions,
+        );
       }
 
       if (this.isScreenSharing) {
@@ -940,19 +976,10 @@ export default class LiveKitClient {
       if (!enable && !videoTrack.isMuted) {
         await videoTrack.mute();
       } else if (enable && videoTrack.isMuted) {
-        const publications =
-          this.liveKitRoom?.localParticipant.videoTrackPublications.values() ??
-          [];
-        const isPublished = [...publications].some(
-          (publication) => publication.track === videoTrack,
-        );
-        if (!isPublished) {
-          log.debug("Cannot unmute a camera track that is not published");
-          return;
-        }
         await videoTrack.unmute();
       }
-      this.avMaster.render();
+      game.user?.broadcastActivity({ av: { hidden: videoTrack.isMuted } });
+      this.renderAndReattachLocalVideo();
     });
   }
 
@@ -2051,33 +2078,49 @@ export default class LiveKitClient {
     });
   }
 
-  setAudioEnabledState(enable: boolean): void {
-    if (!this.audioTrack) {
-      log.debug("setAudioEnabledState called but no audio track available");
-      return;
-    }
-    if (this.liveKitRoom?.state !== ConnectionState.Connected) {
-      log.debug(
-        "setAudioEnabledState called but LiveKit room is not connected",
-      );
-      return;
-    }
+  setAudioEnabledState(enable: boolean): Promise<void> {
+    return this.enqueueAudioOperation(async () => {
+      let audioTrack = this.audioTrack;
+      if (enable && (!audioTrack || this.isTrackEnded(audioTrack))) {
+        if (audioTrack) {
+          await this.liveKitRoom?.localParticipant
+            .unpublishTrack(audioTrack)
+            .catch(() => undefined);
+          audioTrack.detach();
+          audioTrack.stop();
+          this.audioTrack = null;
+        }
 
-    if (!enable && !this.audioTrack.isMuted) {
-      log.debug("Muting audio track", this.audioTrack);
-      this.audioTrack.mute().catch((error: unknown) => {
-        log.error("Error muting audio track:", error);
-      });
-    } else if (enable && this.audioTrack.isMuted) {
-      log.debug("Un-muting audio track", this.audioTrack);
-      this.audioTrack.unmute().catch((error: unknown) => {
-        log.error("Error un-muting audio track:", error);
-      });
-    } else {
-      log.debug(
-        "setAudioEnabledState called but track is already in the current state",
-      );
-    }
+        await this.initializeAudioTrack();
+        audioTrack = this.audioTrack;
+      }
+
+      if (!audioTrack) {
+        log.debug("setAudioEnabledState called but no audio track available");
+        return;
+      }
+
+      const room = this.liveKitRoom;
+      const isPublished = [
+        ...(room?.localParticipant.audioTrackPublications.values() ?? []),
+      ].some((publication) => publication.track === audioTrack);
+      if (enable && room?.state === ConnectionState.Connected && !isPublished) {
+        await room.localParticipant.publishTrack(
+          audioTrack,
+          this.trackPublishOptions,
+        );
+      }
+
+      if (!enable && !audioTrack.isMuted) {
+        log.debug("Muting audio track", audioTrack);
+        await audioTrack.mute();
+      } else if (enable && audioTrack.isMuted) {
+        log.debug("Un-muting audio track", audioTrack);
+        await audioTrack.unmute();
+      }
+      game.user?.broadcastActivity({ av: { muted: audioTrack.isMuted } });
+      this.avMaster.render();
+    });
   }
 
   setConnectionButtons(connected: boolean): void {
