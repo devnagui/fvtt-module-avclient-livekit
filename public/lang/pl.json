@@ -89,6 +89,6 @@
   "LIVEKITAVCLIENT.devMode": "Włącz tryb programisty",
   "LIVEKITAVCLIENT.devModeHint": "Dodaje dodatkowe ustawienia dla programistów.",
   "LIVEKITAVCLIENT.forceTurn": "Wymagany przekaźnik TURN",
-  "LIVEKITAVCLIENT.forceTurnHint": "Ustawia połączenie z wymaganym przekaźnikiem za pośrednictwem TURN.",
+  "LIVEKITAVCLIENT.forceTurnHint": "Wymusza przesyłanie wszystkich mediów przez przekaźnik TURN LiveKit. Użyj tej opcji do diagnozowania lub omijania niestabilnych bezpośrednich połączeń UDP. Wymaga ponownego wczytania i działającego serwera TURN.",
   "WEBRTC.TABS.livekit": "LiveKit AVClient"
 }

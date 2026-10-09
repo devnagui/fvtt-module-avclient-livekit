@@ -3,6 +3,7 @@ import { Track } from "livekit-client";
 import LiveKitAVClient, {
   getBlockedUserIds,
   getLocalAVActivity,
+  getRoomConnectOptions,
 } from "../src/LiveKitAVClient";
 import LiveKitClient from "../src/LiveKitClient";
 import { debounceRefreshView } from "../src/utils/helpers";
@@ -70,6 +71,14 @@ describe("cross-version camera rendering", () => {
 });
 
 describe("Foundry AV state semantics", () => {
+  it("uses relay-only ICE only when Require TURN is enabled", () => {
+    expect(getRoomConnectOptions(false)).toEqual({ autoSubscribe: true });
+    expect(getRoomConnectOptions(true)).toEqual({
+      autoSubscribe: true,
+      rtcConfig: { iceTransportPolicy: "relay" },
+    });
+  });
+
   it("detects receiver-local blocked user setting changes", () => {
     expect(
       getBlockedUserIds([

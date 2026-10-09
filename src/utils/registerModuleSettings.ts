@@ -293,7 +293,7 @@ export default function registerModuleSettings(): void {
     name: "LIVEKITAVCLIENT.forceTurn",
     hint: "LIVEKITAVCLIENT.forceTurnHint",
     scope: "world",
-    config: game.settings.get(MODULE_NAME, "devMode") ?? false,
+    config: true,
     default: false,
     type: new foundry.data.fields.BooleanField({ initial: false }),
     requiresReload: true,

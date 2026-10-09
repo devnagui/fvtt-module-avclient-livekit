@@ -1,5 +1,11 @@
 # LiveKit A/V Client for FoundryVTT: Changelog
 
+## 0.8.19 (devnagui fork)
+
+- Wire the existing Require TURN setting to `rtcConfig.iceTransportPolicy = "relay"` so it actually forces LiveKit media through configured TURN servers.
+- Expose Require TURN as a production world setting with reload semantics and clearer diagnostic guidance.
+- Add regression coverage for normal and relay-only connection options.
+
 ## 0.8.18 (devnagui fork)
 
 - Update `livekit-client` from 2.22.1 to 2.22.4 for reconnect reliability fixes, including remote ICE candidate handling after reconnect, WebSocket attempt tracking, buffered signal-event flushing, and waiting for the reconnect response before declaring signaling recovered.

@@ -115,6 +115,6 @@
   "LIVEKITAVCLIENT.devMode": "Enable developer mode",
   "LIVEKITAVCLIENT.devModeHint": "Adds additional developer settings",
   "LIVEKITAVCLIENT.forceTurn": "Required TURN relay",
-  "LIVEKITAVCLIENT.forceTurnHint": "Sets connection to required relaying via TURN",
+  "LIVEKITAVCLIENT.forceTurnHint": "Require all media to use the LiveKit TURN relay. Use this to diagnose or work around unreliable direct UDP paths. Requires a reload and a working TURN server.",
   "WEBRTC.TABS.livekit": "LiveKit AVClient"
 }

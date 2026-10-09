@@ -38,6 +38,15 @@ declare module "fvtt-types/configuration" {
 
 const log = new Logger();
 
+export function getRoomConnectOptions(forceTurn: boolean): RoomConnectOptions {
+  return {
+    autoSubscribe: true,
+    ...(forceTurn
+      ? { rtcConfig: { iceTransportPolicy: "relay" as const } }
+      : {}),
+  };
+}
+
 export function getLocalAVActivity(client: {
   audioTrack: { isMuted: boolean } | null;
   videoTrack: { isMuted: boolean } | null;
@@ -397,9 +406,9 @@ export default class LiveKitAVClient extends foundry.av.AVClient {
     }
 
     // Set the livekit room options
-    const liveKitRoomConnectOptions: RoomConnectOptions = {
-      autoSubscribe: true,
-    };
+    const liveKitRoomConnectOptions = getRoomConnectOptions(
+      game.settings?.get(MODULE_NAME, "forceTurn") ?? false,
+    );
 
     if (
       game.settings?.get(MODULE_NAME, "debug") &&
