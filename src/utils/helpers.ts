@@ -31,12 +31,22 @@ export const debounceRender: () => void = foundry.utils.debounce(
   200,
 );
 
-export const debounceRefreshView: (userId: string) => void =
-  foundry.utils.debounce((userId: string) => {
+const refreshViewTimeouts = new Map<string, number>();
+
+export const debounceRefreshView = (userId: string): void => {
+  const existingTimeout = refreshViewTimeouts.get(userId);
+  if (existingTimeout !== undefined) {
+    window.clearTimeout(existingTimeout);
+  }
+
+  const timeout = window.setTimeout(() => {
+    refreshViewTimeouts.delete(userId);
     ui.webrtc?.render({ parts: [userId] }).catch((error: unknown) => {
       log.error("Error refreshing user view:", error);
     });
   }, 200);
+  refreshViewTimeouts.set(userId, timeout);
+};
 
 export const sleep: (delay: number) => Promise<void> = (delay: number) =>
   new Promise((resolve) => setTimeout(resolve, delay));

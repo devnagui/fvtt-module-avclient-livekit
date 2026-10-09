@@ -1,5 +1,14 @@
 # LiveKit A/V Client for FoundryVTT: Changelog
 
+## 0.8.10 (devnagui fork)
+
+- Reconcile remote video tracks after Foundry or Carolingian UI rebuilds camera views, preventing subscribed cameras from remaining black in one client.
+- Preserve screen-share priority regardless of subscription event order and reliably restore the camera fallback after a share ends or mutes.
+- Debounce view refreshes per participant so simultaneous track events cannot drop another user's refresh.
+- Serialize camera, screen-share, and audio source transitions; recover ended local tracks and rebuild participant mappings after reconnects.
+- Reuse remote audio elements across renders to avoid duplicate playback and stale attachments.
+- Return the Carolingian popout resize handle to the bottom-right while keeping it above the bottom controls.
+
 ## 0.8.9 (devnagui fork)
 
 - Keep the camera publication stable while screen sharing by muting it instead of rapidly unpublishing and republishing it, avoiding stale LiveKit subscription races.

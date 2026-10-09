@@ -675,29 +675,11 @@ export default class LiveKitAVClient extends foundry.av.AVClient {
       return;
     }
 
-    if (!enable) {
-      log.debug("Muting video track", this._liveKitClient.videoTrack);
-      this._liveKitClient.videoTrack.mute().catch((error: unknown) => {
-        log.error("Error muting video track:", error);
+    this._liveKitClient
+      .setVideoEnabledState(enable)
+      .catch((error: unknown) => {
+        log.error("Error changing video enabled state:", error);
       });
-    } else {
-      // Ensure the video track is published to avoid an error when un-muting an unpublished track
-      if (
-        !this._liveKitClient.videoTrack.sid ||
-        !this._liveKitClient.liveKitRoom?.localParticipant.videoTrackPublications.has(
-          this._liveKitClient.videoTrack.sid,
-        )
-      ) {
-        log.debug("toggleVideo unmute called but video track is not published");
-        return;
-      }
-
-      log.debug("Un-muting video track", this._liveKitClient.videoTrack);
-      this._liveKitClient.videoTrack.unmute().catch((error: unknown) => {
-        log.error("Error un-muting video track:", error);
-      });
-    }
-    this.master.render();
   }
 
   /* -------------------------------------------- */

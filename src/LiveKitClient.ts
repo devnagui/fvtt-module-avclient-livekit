@@ -63,6 +63,7 @@ export default class LiveKitClient {
   render: () => void;
 
   audioBroadcastEnabled = false;
+  private audioOperation: Promise<void> = Promise.resolve();
   audioTrack: LocalAudioTrack | null = null;
   audioProcessorContext?: AudioContext;
   noiseModelMenu: HTMLElement | null = null;
@@ -74,10 +75,12 @@ export default class LiveKitClient {
   initState: InitState = InitState.Uninitialized;
   liveKitParticipants = new Map<string, Participant>();
   liveKitRoom: Room | null = null;
+  private participantCallbacksConfigured = new WeakSet<Participant>();
   restoreCameraAfterScreenShare = false;
   screenSharePending = false;
   screenTracks: LocalTrack[] = [];
   useExternalAV = false;
+  private videoOperation: Promise<void> = Promise.resolve();
   videoTrack: LocalVideoTrack | null = null;
   windowClickListener: EventListener | null = null;
 
@@ -127,6 +130,28 @@ export default class LiveKitClient {
   /* -------------------------------------------- */
   /*  LiveKit Internal methods                */
   /* -------------------------------------------- */
+
+  private enqueueAudioOperation(
+    operation: () => Promise<void>,
+  ): Promise<void> {
+    const nextOperation = this.audioOperation.then(
+      () => operation(),
+      () => operation(),
+    );
+    this.audioOperation = nextOperation.catch(() => undefined);
+    return nextOperation;
+  }
+
+  private enqueueVideoOperation(
+    operation: () => Promise<void>,
+  ): Promise<void> {
+    const nextOperation = this.videoOperation.then(
+      () => operation(),
+      () => operation(),
+    );
+    this.videoOperation = nextOperation.catch(() => undefined);
+    return nextOperation;
+  }
 
   addAllParticipants(): void {
     if (!this.liveKitRoom) {
@@ -717,42 +742,46 @@ export default class LiveKitClient {
     userAudioTrack: RemoteAudioTrack,
     audioElement: HTMLAudioElement,
   ): Promise<void> {
-    if (userAudioTrack.attachedElements.includes(audioElement)) {
-      log.debug(
-        "Audio track",
-        userAudioTrack,
-        "already attached to element",
-        audioElement,
-        "; skipping",
-      );
-      return;
-    }
+    const mediaStream =
+      audioElement.srcObject instanceof MediaStream
+        ? audioElement.srcObject
+        : null;
+    const isCurrentTrack = Boolean(
+      userAudioTrack.attachedElements.includes(audioElement) &&
+        mediaStream
+          ?.getAudioTracks()
+          .includes(userAudioTrack.mediaStreamTrack),
+    );
 
-    // Set audio output device
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (audioElement.sinkId === undefined) {
-      log.warn("Your web browser does not support output audio sink selection");
-    } else {
-      const requestedSink = this.settings.get("client", "audioSink");
-      // @ts-expect-error - setSinkId is currently an experimental method and not in the defined types
-      await audioElement.setSinkId(requestedSink).catch((error: unknown) => {
-        let message = error;
-        if (error instanceof Error) {
-          message = error.message;
-        }
-        log.error(
-          "An error occurred when requesting the output audio device:",
-          requestedSink,
-          message,
-        );
+    if (!isCurrentTrack) {
+      // Set audio output device
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      if (audioElement.sinkId === undefined) {
+        log.warn("Your web browser does not support output audio sink selection");
+      } else {
+        const requestedSink = this.settings.get("client", "audioSink");
+        // @ts-expect-error - setSinkId is currently an experimental method and not in the defined types
+        await audioElement.setSinkId(requestedSink).catch((error: unknown) => {
+          let message = error;
+          if (error instanceof Error) {
+            message = error.message;
+          }
+          log.error(
+            "An error occurred when requesting the output audio device:",
+            requestedSink,
+            message,
+          );
+        });
+      }
+
+      // Keep exactly one playback element per remote audio track.
+      userAudioTrack.detach();
+      userAudioTrack.attach(audioElement);
+    } else if (audioElement.paused) {
+      audioElement.play().catch((error: unknown) => {
+        log.debug("Could not resume audio playback:", error);
       });
     }
-
-    // Detach from any existing elements
-    userAudioTrack.detach();
-
-    // Attach the audio track
-    userAudioTrack.attach(audioElement);
 
     // Set the parameters
     let userVolume = this.settings.getUser(userId)?.volume;
@@ -767,30 +796,32 @@ export default class LiveKitClient {
     userVideoTrack: VideoTrack,
     videoElement: HTMLVideoElement,
   ): void {
-    if (userVideoTrack.attachedElements.includes(videoElement)) {
-      log.debug(
-        "Video track",
-        userVideoTrack,
-        "already attached to element",
-        videoElement,
-        "; skipping",
-      );
-      return;
+    // Remove references to elements destroyed by a Foundry re-render, but keep
+    // other connected views (for example, a dock and a popout) working.
+    for (const attachedElement of [...userVideoTrack.attachedElements]) {
+      if (!attachedElement.isConnected) {
+        userVideoTrack.detach(attachedElement);
+      }
     }
-
-    // Detach from any existing elements
-    userVideoTrack.detach();
 
     videoElement.classList.toggle(
       "livekit-screen-share-video",
       userVideoTrack.source === Track.Source.ScreenShare,
     );
 
-    // Attach to the video element
+    // LiveKit intentionally repairs srcObject even when it already records the
+    // element as attached. Always call attach: another video source may have
+    // replaced this element's MediaStream track without updating that record.
     userVideoTrack.attach(videoElement);
   }
 
-  async changeAudioSource(forceStop = false): Promise<void> {
+  changeAudioSource(forceStop = false): Promise<void> {
+    return this.enqueueAudioOperation(() =>
+      this.changeAudioSourceInternal(forceStop),
+    );
+  }
+
+  private async changeAudioSourceInternal(forceStop: boolean): Promise<void> {
     // Force the stop of an existing track
     if (forceStop && this.audioTrack) {
       await this.liveKitRoom?.localParticipant.unpublishTrack(this.audioTrack);
@@ -831,28 +862,43 @@ export default class LiveKitClient {
     }
   }
 
-  async changeVideoSource(): Promise<void> {
+  changeVideoSource(): Promise<void> {
+    return this.enqueueVideoOperation(() => this.changeVideoSourceInternal());
+  }
+
+  private async changeVideoSourceInternal(): Promise<void> {
+    const isScreenSharing = this.isScreenSharing;
     if (
       !this.videoTrack ||
       this.settings.get("client", "videoSrc") === "disabled" ||
       !this.avMaster.canUserBroadcastVideo(game.user?.id ?? "")
     ) {
       if (this.videoTrack) {
+        if (isScreenSharing) {
+          this.restoreCameraAfterScreenShare = false;
+        }
         await this.liveKitRoom?.localParticipant.unpublishTrack(
           this.videoTrack,
         );
         this.videoTrack.detach();
         this.videoTrack.stop();
         this.videoTrack = null;
-        game.user?.broadcastActivity({ av: { hidden: true } });
+        game.user?.broadcastActivity({ av: { hidden: !isScreenSharing } });
       } else {
         await this.initializeVideoTrack();
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-        if (this.videoTrack) {
+        const videoTrack = this.videoTrack as LocalVideoTrack | null;
+        if (videoTrack) {
           await this.liveKitRoom?.localParticipant.publishTrack(
-            this.videoTrack,
+            videoTrack,
             this.trackPublishOptions,
           );
+          if (isScreenSharing) {
+            this.restoreCameraAfterScreenShare =
+              this.avMaster.canUserShareVideo(game.user?.id ?? "");
+            if (!videoTrack.isMuted) {
+              await videoTrack.mute();
+            }
+          }
           game.user?.broadcastActivity({ av: { hidden: false } });
           this.renderAndReattachLocalVideo();
         }
@@ -861,8 +907,53 @@ export default class LiveKitClient {
       const videoParams = this.getVideoParams();
       if (videoParams) {
         await this.videoTrack.restartTrack(videoParams);
+        if (isScreenSharing) {
+          this.restoreCameraAfterScreenShare =
+            this.avMaster.canUserShareVideo(game.user?.id ?? "");
+          if (!this.videoTrack.isMuted) {
+            await this.videoTrack.mute();
+          }
+        }
       }
     }
+  }
+
+  setVideoEnabledState(enable: boolean): Promise<void> {
+    return this.enqueueVideoOperation(async () => {
+      const videoTrack = this.videoTrack;
+      if (!videoTrack) {
+        log.debug("setVideoEnabledState called but no video track is available");
+        return;
+      }
+
+      if (this.isScreenSharing) {
+        // Store the latest user choice, but keep the camera muted until screen
+        // sharing ends so it cannot replace the shared display on peers.
+        this.restoreCameraAfterScreenShare = enable;
+        if (!videoTrack.isMuted) {
+          await videoTrack.mute();
+        }
+        this.avMaster.render();
+        return;
+      }
+
+      if (!enable && !videoTrack.isMuted) {
+        await videoTrack.mute();
+      } else if (enable && videoTrack.isMuted) {
+        const publications =
+          this.liveKitRoom?.localParticipant.videoTrackPublications.values() ??
+          [];
+        const isPublished = [...publications].some(
+          (publication) => publication.track === videoTrack,
+        );
+        if (!isPublished) {
+          log.debug("Cannot unmute a camera track that is not published");
+          return;
+        }
+        await videoTrack.unmute();
+      }
+      this.avMaster.render();
+    });
   }
 
   getAudioParams(): AudioCaptureOptions | false {
@@ -916,19 +1007,27 @@ export default class LiveKitClient {
   }
 
   getParticipantFVTTUser(participant: Participant): User | undefined {
-    const { fvttUserId } = JSON.parse(participant.metadata ?? "{}") as {
-      fvttUserId: string;
-    };
-    return game.users?.get(fvttUserId);
+    try {
+      const { fvttUserId } = JSON.parse(participant.metadata ?? "{}") as {
+        fvttUserId?: string;
+      };
+      return fvttUserId ? game.users?.get(fvttUserId) : undefined;
+    } catch (error) {
+      log.warn("Invalid participant metadata:", participant.identity, error);
+      return undefined;
+    }
   }
 
   getParticipantUseExternalAV(participant: Participant): boolean {
-    const { useExternalAV } = JSON.parse(
-      participant.metadata ?? "{ false }",
-    ) as {
-      useExternalAV: boolean;
-    };
-    return useExternalAV;
+    try {
+      const { useExternalAV } = JSON.parse(participant.metadata ?? "{}") as {
+        useExternalAV?: boolean;
+      };
+      return useExternalAV ?? false;
+    } catch (error) {
+      log.warn("Invalid participant metadata:", participant.identity, error);
+      return false;
+    }
   }
 
   getUserAudioTrack(
@@ -1004,9 +1103,11 @@ export default class LiveKitClient {
       const track = publication.track;
       if (
         publication.kind !== Track.Kind.Video ||
+        publication.isMuted ||
         !(
           track instanceof LocalVideoTrack || track instanceof RemoteVideoTrack
-        )
+        ) ||
+        track.mediaStreamTrack.readyState !== "live"
       ) {
         continue;
       }
@@ -1023,18 +1124,60 @@ export default class LiveKitClient {
     return cameraTrack;
   }
 
-  private getLocalVideoElement(): HTMLVideoElement | null {
-    const cameraView = document.querySelector(
-      `.camera-view[data-user="${game.user?.id ?? ""}"]`,
-    );
-    if (cameraView instanceof HTMLVideoElement) {
-      return cameraView;
+  private getUserVideoElements(
+    userId: string,
+    root: ParentNode = document,
+  ): HTMLVideoElement[] {
+    const videoElements = new Set<HTMLVideoElement>();
+    const selector = `.camera-view[data-user="${userId}"]`;
+    const cameraViews = [...root.querySelectorAll(selector)];
+    if (root instanceof Element && root.matches(selector)) {
+      cameraViews.unshift(root);
     }
 
-    const videoElement = cameraView?.querySelector(
-      "video.user-video, video.user-camera, video",
-    );
-    return videoElement instanceof HTMLVideoElement ? videoElement : null;
+    for (const cameraView of cameraViews) {
+      if (cameraView instanceof HTMLVideoElement) {
+        videoElements.add(cameraView);
+        continue;
+      }
+
+      cameraView
+        .querySelectorAll<HTMLVideoElement>(
+          "video.user-video, video.user-camera, video",
+        )
+        .forEach((videoElement) => videoElements.add(videoElement));
+    }
+
+    return [...videoElements];
+  }
+
+  private reattachRemoteVideoForUser(
+    userId: string,
+    root: ParentNode = document,
+  ): void {
+    if (userId === game.user?.id) {
+      return;
+    }
+
+    const videoTrack = this.getUserVideoTrack(userId);
+    if (!videoTrack) {
+      return;
+    }
+
+    for (const videoElement of this.getUserVideoElements(userId, root)) {
+      this.attachVideoTrack(videoTrack, videoElement);
+    }
+  }
+
+  private reattachRemoteVideo(root: ParentNode = document): void {
+    this.liveKitParticipants.forEach((_participant, userId) => {
+      this.reattachRemoteVideoForUser(userId, root);
+    });
+  }
+
+  private getLocalVideoElement(): HTMLVideoElement | null {
+    const userId = game.user?.id;
+    return userId ? (this.getUserVideoElements(userId)[0] ?? null) : null;
   }
 
   private reattachLocalVideo(): void {
@@ -1053,6 +1196,10 @@ export default class LiveKitClient {
     requestAnimationFrame(() => {
       this.reattachLocalVideo();
     });
+  }
+
+  private isTrackEnded(track: LocalTrack): boolean {
+    return track.mediaStreamTrack.readyState === "ended";
   }
 
   private clearScreenTracks(): void {
@@ -1084,10 +1231,21 @@ export default class LiveKitClient {
     videoElement: HTMLVideoElement | null = null,
     audioType: Track.Source,
   ): HTMLAudioElement | null {
-    // Find an existing audio element
-    let audioElement = ui.webrtc?.element.querySelector(
-      `.camera-view[data-user="${userId}"] audio.user-${audioType}-audio`,
+    // Audio elements are siblings of Foundry's video element in v14, not its
+    // descendants. Reuse the sibling so repeated renders cannot duplicate
+    // playback for the same participant and source.
+    let audioElement = videoElement?.parentElement?.querySelector(
+      `audio.user-${audioType}-audio[data-user-id="${userId}"]`,
     );
+    const adjacentElement = videoElement?.nextElementSibling;
+    if (
+      !audioElement &&
+      adjacentElement instanceof HTMLAudioElement &&
+      adjacentElement.classList.contains(`user-${audioType}-audio`) &&
+      !adjacentElement.dataset.userId
+    ) {
+      audioElement = adjacentElement;
+    }
 
     // If one doesn't exist, create it
     if (!audioElement && videoElement) {
@@ -1095,6 +1253,7 @@ export default class LiveKitClient {
       audioElement.className = `user-${audioType}-audio`;
       if (audioElement instanceof HTMLAudioElement) {
         audioElement.autoplay = true;
+        audioElement.dataset.userId = userId;
       }
       videoElement.after(audioElement);
 
@@ -1107,6 +1266,7 @@ export default class LiveKitClient {
     }
 
     if (audioElement instanceof HTMLAudioElement) {
+      audioElement.dataset.userId = userId;
       return audioElement;
     }
 
@@ -1310,6 +1470,17 @@ export default class LiveKitClient {
   async onConnected(): Promise<void> {
     log.debug("Client connected");
 
+    // A network-forced disconnect can stop local MediaStreamTracks even when
+    // a deliberate disconnect preserves them. Never republish ended tracks.
+    if (this.audioTrack?.mediaStreamTrack.readyState === "ended") {
+      this.audioTrack.detach();
+      await this.initializeAudioTrack();
+    }
+    if (this.videoTrack?.mediaStreamTrack.readyState === "ended") {
+      this.videoTrack.detach();
+      await this.initializeVideoTrack();
+    }
+
     // Set up local participant callbacks
     this.setLocalParticipantCallbacks();
 
@@ -1369,6 +1540,15 @@ export default class LiveKitClient {
     // Clear the participant map
     this.liveKitParticipants.clear();
     this.clearScreenTracks();
+    if (
+      this.restoreCameraAfterScreenShare &&
+      this.videoTrack?.mediaStreamTrack.readyState === "live" &&
+      this.videoTrack.isMuted
+    ) {
+      this.videoTrack.unmute().catch((error: unknown) => {
+        log.debug("Could not restore camera after disconnect:", error);
+      });
+    }
     this.restoreCameraAfterScreenShare = false;
     this.screenSharePending = false;
 
@@ -1461,7 +1641,11 @@ export default class LiveKitClient {
       return;
     }
 
-    this.liveKitParticipants.delete(fvttUserId);
+    // A delayed disconnect from an old LiveKit participant must not remove a
+    // newer participant that has already reconnected for the same Foundry user.
+    if (this.liveKitParticipants.get(fvttUserId) === participant) {
+      this.liveKitParticipants.delete(fvttUserId);
+    }
 
     // Clear breakout room cache if user is leaving a breakout room
     if (
@@ -1482,6 +1666,9 @@ export default class LiveKitClient {
 
   onReconnected(): void {
     log.info("Reconnect issued");
+    this.addAllParticipants();
+    this.reattachRemoteAudio();
+    this.reattachRemoteVideo();
     // Re-render just in case users changed
     this.render();
   }
@@ -1566,14 +1753,31 @@ export default class LiveKitClient {
       return;
     }
 
+    if (publication.kind === Track.Kind.Video) {
+      // Camera and screen-share publications represent one Foundry video tile.
+      // Re-select the best usable source instead of applying the state of the
+      // last publication event to the whole user.
+      this.reattachRemoteVideoForUser(fvttUserId);
+      debounceRefreshView(fvttUserId);
+      const isVideoHidden = this.getUserVideoTrack(fvttUserId) === null;
+
+      if (useExternalAV) {
+        this.avMaster.settings.handleUserActivity(fvttUserId, {
+          hidden: isVideoHidden,
+        });
+      } else {
+        const hiddenIndicator = document
+          .querySelector(`.camera-view[data-user="${fvttUserId}"]`)
+          ?.querySelector(".status-remote-hidden");
+        hiddenIndicator?.classList.toggle("hidden", !isVideoHidden);
+      }
+      return;
+    }
+
     if (useExternalAV) {
       if (publication.kind === Track.Kind.Audio) {
         this.avMaster.settings.handleUserActivity(fvttUserId, {
           muted: publication.isMuted,
-        });
-      } else if (publication.kind === Track.Kind.Video) {
-        this.avMaster.settings.handleUserActivity(fvttUserId, {
-          hidden: publication.isMuted,
         });
       }
     } else {
@@ -1584,8 +1788,6 @@ export default class LiveKitClient {
         let uiIndicator;
         if (publication.kind === Track.Kind.Audio) {
           uiIndicator = userCameraView.querySelector(".status-remote-muted");
-        } else if (publication.kind === Track.Kind.Video) {
-          uiIndicator = userCameraView.querySelector(".status-remote-hidden");
         }
 
         if (uiIndicator) {
@@ -1605,8 +1807,14 @@ export default class LiveKitClient {
     // dynamically-created <audio> elements. Without this, a participant's audio
     // goes silent after such a render because the track stays attached to an
     // orphaned element that is no longer in the document.
-    this.reattachRemoteAudio();
+    this.reattachRemoteAudio(html);
+    this.reattachRemoteVideo(html);
     this.reattachLocalVideo();
+    requestAnimationFrame(() => {
+      this.reattachRemoteAudio();
+      this.reattachRemoteVideo();
+      this.reattachLocalVideo();
+    });
 
     const userId = game.user?.id;
     if (!userId) {
@@ -1638,7 +1846,7 @@ export default class LiveKitClient {
    * keeps participant audio playing when UI modules minimize, move, or rebuild
    * the camera dock.
    */
-  reattachRemoteAudio(): void {
+  reattachRemoteAudio(root: ParentNode = document): void {
     const localUserId = game.user?.id;
 
     this.liveKitParticipants.forEach((participant, userId) => {
@@ -1653,28 +1861,8 @@ export default class LiveKitClient {
           return;
         }
 
-        // If the track is already attached to a connected element, just make
-        // sure it is still playing (a DOM move can pause media elements).
-        const connectedElements = track.attachedElements.filter(
-          (element) => element.isConnected,
-        );
-        if (connectedElements.length > 0) {
-          for (const element of connectedElements) {
-            if (element instanceof HTMLMediaElement && element.paused) {
-              element.play().catch((error: unknown) => {
-                log.debug("Could not resume audio playback:", error);
-              });
-            }
-          }
-          return;
-        }
-
-        // Otherwise the audio element was destroyed by a re-render; recreate it
-        // inside the current camera view and re-attach the track.
-        const cameraViewElement = ui.webrtc?.element.querySelector(
-          `.camera-view[data-user="${userId}"]`,
-        );
-        if (!(cameraViewElement instanceof HTMLVideoElement)) {
+        const cameraViewElement = this.getUserVideoElements(userId, root).at(0);
+        if (!cameraViewElement) {
           return;
         }
 
@@ -1713,11 +1901,9 @@ export default class LiveKitClient {
       return;
     }
 
-    const videoElement = document.querySelector(
-      `.camera-view[data-user="${fvttUserId}"]`,
-    );
+    const videoElement = this.getUserVideoElements(fvttUserId).at(0);
 
-    if (!(videoElement instanceof HTMLVideoElement)) {
+    if (!videoElement) {
       log.debug(
         "videoElement not yet ready for",
         fvttUserId,
@@ -1743,7 +1929,10 @@ export default class LiveKitClient {
         );
       }
     } else if (track instanceof RemoteVideoTrack) {
-      this.attachVideoTrack(track, videoElement);
+      // Publication events can arrive camera-last or screen-last. Always attach
+      // the source selected by policy (live screen share first, then camera),
+      // not simply whichever subscription event arrived most recently.
+      this.reattachRemoteVideoForUser(fvttUserId);
     } else {
       log.warn("Unknown track type subscribed from publication", publication);
     }
@@ -1942,7 +2131,13 @@ export default class LiveKitClient {
   }
 
   setLocalParticipantCallbacks(): void {
-    this.liveKitRoom?.localParticipant
+    const participant = this.liveKitRoom?.localParticipant;
+    if (!participant || this.participantCallbacksConfigured.has(participant)) {
+      return;
+    }
+    this.participantCallbacksConfigured.add(participant);
+
+    participant
       .on(
         ParticipantEvent.IsSpeakingChanged,
         this.onIsSpeakingChanged.bind(this, game.user?.id),
@@ -1962,6 +2157,10 @@ export default class LiveKitClient {
   }
 
   setRemoteParticipantCallbacks(participant: RemoteParticipant): void {
+    if (this.participantCallbacksConfigured.has(participant)) {
+      return;
+    }
+
     const fvttUserId = this.getParticipantFVTTUser(participant)?.id;
 
     if (!fvttUserId) {
@@ -1972,6 +2171,8 @@ export default class LiveKitClient {
       );
       return;
     }
+
+    this.participantCallbacksConfigured.add(participant);
 
     participant
       .on(
@@ -2033,7 +2234,13 @@ export default class LiveKitClient {
       .on(RoomEvent.Reconnected, this.onReconnected.bind(this));
   }
 
-  async shareScreen(enabled: boolean): Promise<void> {
+  shareScreen(enabled: boolean): Promise<void> {
+    return this.enqueueVideoOperation(() =>
+      this.changeScreenShareState(enabled),
+    );
+  }
+
+  private async changeScreenShareState(enabled: boolean): Promise<void> {
     log.info("shareScreen:", enabled);
 
     if (this.screenSharePending || enabled === this.isScreenSharing) {
@@ -2099,6 +2306,13 @@ export default class LiveKitClient {
           { once: true },
         );
 
+        if (this.isTrackEnded(screenVideoTrack)) {
+          throw new Error(
+            game.i18n?.localize(`${LANG_NAME}.screenShareNoVideo`) ??
+              "The selected screen source ended before it could be shared.",
+          );
+        }
+
         if (this.videoTrack) {
           this.restoreCameraAfterScreenShare =
             !this.videoTrack.isMuted &&
@@ -2119,6 +2333,12 @@ export default class LiveKitClient {
             screenTrack,
             this.trackPublishOptions,
           );
+          if (this.isTrackEnded(screenVideoTrack)) {
+            throw new Error(
+              game.i18n?.localize(`${LANG_NAME}.screenShareNoVideo`) ??
+                "The selected screen source ended before it could be shared.",
+            );
+          }
         }
       } else {
         const screenTracks = this.screenTracks;

@@ -212,15 +212,14 @@ body.crlngn-ui .camera-view.popout > .bottom range-picker > input {
   pointer-events: auto;
 }
 
-/* The bottom control overlay occupies the original resize corner. Move the
- * handle to the top-right and vertically flip its bottom-right corner image. */
+/* Keep the resize handle in its native bottom-right corner, but place it above
+ * Carolingian's bottom controls so it remains accessible while they are open. */
 body.crlngn-ui .camera-view.popout > .window-resize-handle {
-  inset: 1px 1px auto auto;
+  inset: auto 1px 1px auto;
   z-index: 1000;
   pointer-events: auto;
-  cursor: nesw-resize;
-  transform: scaleY(-1);
-  transform-origin: center;
+  cursor: nwse-resize;
+  transform: none;
 }
 
 /* Carolingian UI stacks camera controls vertically. On narrow camera tiles,
