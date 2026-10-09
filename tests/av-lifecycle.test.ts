@@ -1,9 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Track } from "livekit-client";
-import LiveKitAVClient, { getLocalAVActivity } from "../src/LiveKitAVClient";
+import LiveKitAVClient, {
+  getBlockedUserIds,
+  getLocalAVActivity,
+} from "../src/LiveKitAVClient";
 import LiveKitClient from "../src/LiveKitClient";
 
 describe("Foundry AV state semantics", () => {
+  it("detects receiver-local blocked user setting changes", () => {
+    expect(
+      getBlockedUserIds([
+        "client.users.user-a.blocked",
+        "client.users.user-a.volume",
+        "client.users.user-b.blocked",
+      ]),
+    ).toEqual(["user-a", "user-b"]);
+  });
+
   it("broadcasts actual initial mute state separately from source availability", () => {
     expect(
       getLocalAVActivity({
@@ -114,5 +127,22 @@ describe("remote audio lifecycle", () => {
         "#livekit-remote-audio-container audio[data-livekit-remote-audio]",
       ),
     ).toHaveLength(2);
+  });
+});
+
+describe("receiver-hidden video lifecycle", () => {
+  it("does not attach video for a user blocked by this receiver", () => {
+    const client = Object.create(LiveKitClient.prototype) as LiveKitClient;
+    const getUserVideoTrack = vi.fn();
+    Object.assign(client, {
+      settings: {
+        getUser: () => ({ blocked: true }),
+      },
+      getUserVideoTrack,
+    });
+
+    client.reattachRemoteVideoForUser("user-a");
+
+    expect(getUserVideoTrack).not.toHaveBeenCalled();
   });
 });

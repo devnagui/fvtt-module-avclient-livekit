@@ -43,4 +43,7 @@ Object.assign(globalThis, {
     callAll: () => undefined,
     once: () => undefined,
   },
+  game: {
+    user: { id: "self" },
+  },
 });

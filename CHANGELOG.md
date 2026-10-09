@@ -1,5 +1,11 @@
 # LiveKit A/V Client for FoundryVTT: Changelog
 
+## 0.8.13 (devnagui fork)
+
+- Restore the receiver-side Hide User action for detached camera popouts by explicitly refreshing the separate popout application when its blocked state changes.
+- Prevent LiveKit video reconciliation from attaching or refreshing video for users intentionally blocked by the receiver while preserving their persistent remote audio.
+- Add regression tests for blocked-setting detection and receiver-hidden video reconciliation.
+
 ## 0.8.12 (devnagui fork)
 
 - Fix the v0.8.11 microphone initialization feedback loop that could lock a user in the muted state.

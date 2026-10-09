@@ -1192,11 +1192,14 @@ export default class LiveKitClient {
     return [...videoElements];
   }
 
-  private reattachRemoteVideoForUser(
+  reattachRemoteVideoForUser(
     userId: string,
     root: ParentNode = document,
   ): void {
-    if (userId === game.user?.id) {
+    if (
+      userId === game.user?.id ||
+      this.isUserVideoBlocked(userId)
+    ) {
       return;
     }
 
@@ -1208,6 +1211,10 @@ export default class LiveKitClient {
     for (const videoElement of this.getUserVideoElements(userId, root)) {
       this.attachVideoTrack(videoTrack, videoElement);
     }
+  }
+
+  isUserVideoBlocked(userId: string): boolean {
+    return this.settings.getUser(userId)?.blocked ?? false;
   }
 
   private reattachRemoteVideo(root: ParentNode = document): void {
@@ -1850,8 +1857,11 @@ export default class LiveKitClient {
       // Camera and screen-share publications represent one Foundry video tile.
       // Re-select the best usable source instead of applying the state of the
       // last publication event to the whole user.
-      this.reattachRemoteVideoForUser(fvttUserId);
-      debounceRefreshView(fvttUserId);
+      const isReceiverBlocked = this.isUserVideoBlocked(fvttUserId);
+      if (!isReceiverBlocked) {
+        this.reattachRemoteVideoForUser(fvttUserId);
+        debounceRefreshView(fvttUserId);
+      }
       const isVideoHidden = this.getUserVideoTrack(fvttUserId) === null;
 
       if (useExternalAV) {
@@ -2035,7 +2045,9 @@ export default class LiveKitClient {
         "; skipping publication",
         publication,
       );
-      debounceRefreshView(fvttUserId);
+      if (!this.isUserVideoBlocked(fvttUserId)) {
+        debounceRefreshView(fvttUserId);
+      }
       return;
     }
 
@@ -2048,7 +2060,9 @@ export default class LiveKitClient {
       log.warn("Unknown track type subscribed from publication", publication);
     }
 
-    debounceRefreshView(fvttUserId);
+    if (!this.isUserVideoBlocked(fvttUserId)) {
+      debounceRefreshView(fvttUserId);
+    }
   }
 
   onTrackUnSubscribed(

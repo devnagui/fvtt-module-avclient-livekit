@@ -50,6 +50,17 @@ export function getLocalAVActivity(client: {
   };
 }
 
+export function getBlockedUserIds(keys: Iterable<string>): string[] {
+  const userIds = new Set<string>();
+  for (const key of keys) {
+    const match = /^client\.users\.([^.]+)\.blocked$/.exec(key);
+    if (match?.[1]) {
+      userIds.add(match[1]);
+    }
+  }
+  return [...userIds];
+}
+
 if (import.meta.hot) {
   log.warn("HMR enabled for LiveKitAVClient");
   import.meta.hot.accept((module) => {
@@ -745,7 +756,10 @@ export default class LiveKitAVClient extends foundry.av.AVClient {
     const userVideoTrack = this._liveKitClient.getUserVideoTrack(userId);
 
     // Add the video for the user
-    if (userVideoTrack) {
+    if (
+      userVideoTrack &&
+      !this._liveKitClient.isUserVideoBlocked(userId)
+    ) {
       this._liveKitClient.attachVideoTrack(userVideoTrack, videoElement);
     }
 
@@ -818,6 +832,23 @@ export default class LiveKitAVClient extends foundry.av.AVClient {
       [...keys].some((key) => /^client\.users\.[^.]+\.volume$/.test(key));
     if (remoteAudioSettingsChange) {
       this._liveKitClient.reattachRemoteAudio();
+    }
+
+    // Foundry's Hide User action updates the main CameraViews application but
+    // a detached camera is a separate CameraPopout application. Re-render that
+    // popout explicitly so its video and Hide/Show control reflect `blocked`.
+    for (const userId of getBlockedUserIds(keys)) {
+      const popout = foundry.applications.instances.get(
+        `camera-view-${userId}`,
+      );
+      popout
+        ?.render({ force: true })
+        .then(() => {
+          this._liveKitClient.reattachRemoteVideoForUser(userId);
+        })
+        .catch((error: unknown) => {
+          log.error("Error refreshing hidden camera popout:", error);
+        });
     }
 
     // Re-render the AV camera view
