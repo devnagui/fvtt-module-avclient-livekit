@@ -2086,7 +2086,7 @@ export default class LiveKitClient {
 
     if (track instanceof RemoteVideoTrack) {
       const fvttUserId = this.getParticipantFVTTUser(participant)?.id;
-      if (fvttUserId) {
+      if (fvttUserId && !this.isUserVideoBlocked(fvttUserId)) {
         // A screen-share track and camera track use the same Foundry video
         // element. Refresh after removing the screen track so setUserVideo()
         // attaches the participant's still-published camera fallback.

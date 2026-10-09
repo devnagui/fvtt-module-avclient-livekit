@@ -41,8 +41,12 @@ export const debounceRefreshView = (userId: string): void => {
 
   const timeout = window.setTimeout(() => {
     refreshViewTimeouts.delete(userId);
-    ui.webrtc?.render({ parts: [userId] }).catch((error: unknown) => {
-      log.error("Error refreshing user view:", error);
+    // User IDs are dynamic CameraViews parts in Foundry v14 and disappear from
+    // the supported part registry when a receiver blocks that user. A partial
+    // render can therefore warn or fail during hide/show transitions. A full
+    // render is the stable API shared by Foundry v13 and v14.
+    Promise.resolve(ui.webrtc?.render()).catch((error: unknown) => {
+      log.error("Error refreshing camera views:", error);
     });
   }, 200);
   refreshViewTimeouts.set(userId, timeout);

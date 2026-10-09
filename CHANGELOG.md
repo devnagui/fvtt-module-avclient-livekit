@@ -1,5 +1,11 @@
 # LiveKit A/V Client for FoundryVTT: Changelog
 
+## 0.8.14 (devnagui fork)
+
+- Replace dynamic per-user CameraViews partial renders with a full render compatible with Foundry v13 and v14, eliminating unsupported-template-part warnings during hide/show transitions.
+- Prevent video unsubscribe events from refreshing intentionally blocked users.
+- Add regression coverage ensuring camera refreshes never pass user IDs as template parts.
+
 ## 0.8.13 (devnagui fork)
 
 - Restore the receiver-side Hide User action for detached camera popouts by explicitly refreshing the separate popout application when its blocked state changes.

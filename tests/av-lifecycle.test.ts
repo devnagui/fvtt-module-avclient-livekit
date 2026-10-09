@@ -5,6 +5,22 @@ import LiveKitAVClient, {
   getLocalAVActivity,
 } from "../src/LiveKitAVClient";
 import LiveKitClient from "../src/LiveKitClient";
+import { debounceRefreshView } from "../src/utils/helpers";
+
+describe("cross-version camera rendering", () => {
+  it("uses a full CameraViews render instead of a dynamic user part", async () => {
+    vi.useFakeTimers();
+    const render = vi.fn(() => Promise.resolve());
+    Object.assign(globalThis, { ui: { webrtc: { render } } });
+
+    debounceRefreshView("user-a");
+    await vi.runAllTimersAsync();
+
+    expect(render).toHaveBeenCalledOnce();
+    expect(render).toHaveBeenCalledWith();
+    vi.useRealTimers();
+  });
+});
 
 describe("Foundry AV state semantics", () => {
   it("detects receiver-local blocked user setting changes", () => {
