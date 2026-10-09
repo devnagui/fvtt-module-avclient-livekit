@@ -844,13 +844,10 @@ export default class LiveKitAVClient extends foundry.av.AVClient {
       );
       if (this._liveKitClient.isUserVideoBlocked(userId)) {
         this.settings.set("client", `users.${userId}.popout`, false);
-        Promise.resolve(popout?.close())
-          .then(() => {
-            this.master.render();
-          })
-          .catch((error: unknown) => {
-            log.error("Error closing hidden camera popout:", error);
-          });
+        this.master.render();
+        Promise.resolve(popout?.close()).catch((error: unknown) => {
+          log.error("Error closing hidden camera popout:", error);
+        });
       } else {
         this.master.render();
       }

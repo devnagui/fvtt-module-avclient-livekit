@@ -181,6 +181,12 @@ describe("receiver-hidden video lifecycle", () => {
       false,
     );
     expect(render).toHaveBeenCalled();
+    expect(set.mock.invocationCallOrder[0]).toBeLessThan(
+      render.mock.invocationCallOrder[0] ?? Infinity,
+    );
+    expect(render.mock.invocationCallOrder[0]).toBeLessThan(
+      close.mock.invocationCallOrder[0] ?? Infinity,
+    );
   });
 
   it("does not attach video for a user blocked by this receiver", () => {

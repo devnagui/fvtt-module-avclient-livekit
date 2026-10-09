@@ -1,5 +1,10 @@
 # LiveKit A/V Client for FoundryVTT: Changelog
 
+## 0.8.16 (devnagui fork)
+
+- Render the blocked dock state immediately after clearing detached state, then close the popout independently so delayed or failed popout cleanup cannot prevent Hide User from taking effect.
+- Assert dock-before-close call ordering in the regression suite.
+
 ## 0.8.15 (devnagui fork)
 
 - When Hide User is used from a detached camera, clear its popout state, close the detached window, and let the blocked dock render omit it completely while remote audio continues.
